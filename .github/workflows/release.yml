@@ -55,10 +55,10 @@ jobs:
       - name: Stage binaries
         run: |
           set -eu
-          STAGE="firestire_cli-${{ steps.tag.outputs.name }}-${{ matrix.target_triple }}"
+          STAGE="firestore_cli-${{ steps.tag.outputs.name }}-${{ matrix.target_triple }}"
           mkdir -p "$STAGE"
-          cp _build/native/release/build/cmd/cli/cli.exe "$STAGE/firestire-cli"
-          cp _build/native/release/build/cmd/mcp/mcp.exe "$STAGE/firestire-mcp"
+          cp _build/native/release/build/cmd/cli/cli.exe "$STAGE/firestore-cli"
+          cp _build/native/release/build/cmd/mcp/mcp.exe "$STAGE/firestore-mcp"
           cp README.md LICENSE "$STAGE/" 2>/dev/null || true
           tar -czf "$STAGE.tar.gz" "$STAGE"
           shasum -a 256 "$STAGE.tar.gz" > "$STAGE.tar.gz.sha256"

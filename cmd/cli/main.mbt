@@ -1,6 +1,6 @@
 ///|
 const USAGE =
-  #|firestire <subcommand> [options]
+  #|firestore <subcommand> [options]
   #|  get <collection_path>/<doc_id>
   #|  list <collection_path> [--page-size N] [--page-token TOKEN]
   #|  query <collection_path> --where FIELD=VALUE [--op OP] [--limit N]
@@ -162,7 +162,7 @@ async fn run(args : Array[String]) -> Int {
 ///|
 async fn cmd_get(fc : @firestore.FirestoreClient, args : Array[String]) -> Int {
   if args.length() < 1 {
-    raise CliError("usage: firestire get <collection_path>/<doc_id>")
+    raise CliError("usage: firestore get <collection_path>/<doc_id>")
   }
   let (cp, doc_id) = match @firestore.split_doc_path(args[0]) {
     Ok(v) => v
@@ -179,7 +179,7 @@ async fn cmd_get(fc : @firestore.FirestoreClient, args : Array[String]) -> Int {
 async fn cmd_list(fc : @firestore.FirestoreClient, args : Array[String]) -> Int {
   if args.length() < 1 {
     raise CliError(
-      "usage: firestire list <collection_path> [--page-size N] [--page-token T]",
+      "usage: firestore list <collection_path> [--page-size N] [--page-token T]",
     )
   }
   let cp = args[0]
@@ -217,7 +217,7 @@ async fn cmd_query(
 ) -> Int {
   if args.length() < 1 {
     raise CliError(
-      "usage: firestire query <collection_path> --where FIELD=VALUE [--op OP] [--limit N]",
+      "usage: firestore query <collection_path> --where FIELD=VALUE [--op OP] [--limit N]",
     )
   }
   let cp = args[0]
@@ -263,7 +263,7 @@ async fn cmd_create(
 ) -> Int {
   if args.length() < 1 {
     raise CliError(
-      "usage: firestire create <collection_path> [--doc-id ID] --fields JSON",
+      "usage: firestore create <collection_path> [--doc-id ID] --fields JSON",
     )
   }
   let cp = args[0]
@@ -300,7 +300,7 @@ async fn cmd_delete(
   args : Array[String],
 ) -> Int {
   if args.length() < 1 {
-    raise CliError("usage: firestire delete <collection_path>/<doc_id>")
+    raise CliError("usage: firestore delete <collection_path>/<doc_id>")
   }
   let (cp, doc_id) = match @firestore.split_doc_path(args[0]) {
     Ok(v) => v

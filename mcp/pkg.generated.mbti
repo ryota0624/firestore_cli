@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ryota0624/firestire_cli/mcp"
+package "ryota0624/firestore_cli/mcp"
 
 import {
   "moonbitlang/core/debug",

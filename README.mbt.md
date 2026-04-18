@@ -1,4 +1,4 @@
-# firestire_cli
+# firestore_cli
 
 MoonBit 製の Firestore 操作ツール。CLI と MCP サーバーの 2 バイナリを提供する。
 
@@ -61,9 +61,9 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
 
 ```bash
 # 軽量テスト（Docker 不要）
-moon test -p ryota0624/firestire_cli/firestore
-moon test -p ryota0624/firestire_cli/mcp
+moon test -p ryota0624/firestore_cli/firestore
+moon test -p ryota0624/firestore_cli/mcp
 
 # 統合テスト（Docker 必須）
-moon test -p ryota0624/firestire_cli/test/integration --target native
+moon test -p ryota0624/firestore_cli/test/integration --target native
 ```

@@ -66,7 +66,7 @@ fn initialize_result() -> Json {
     "protocolVersion": Json::string(PROTOCOL_VERSION),
     "capabilities": Json::object({ "tools": Json::object({}) }),
     "serverInfo": Json::object({
-      "name": Json::string("firestire-mcp"),
+      "name": Json::string("firestore-mcp"),
       "version": Json::string("0.1.0"),
     }),
   })
