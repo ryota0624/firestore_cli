@@ -1,0 +1,15 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ryota0624/firestire_cli/cmd/mcp"
+
+// Values
+
+// Errors
+
+// Types and methods
+type Reader
+pub impl @ryota0624/firestire_cli/mcp.FirestoreReader for Reader
+
+// Type aliases
+
+// Traits
+

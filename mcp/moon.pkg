@@ -1,0 +1,6 @@
+///| MCP (Model Context Protocol) — JSON-RPC over stdio.
+import {
+  "mizchi/x/stdio" @stdio,
+  "moonbitlang/core/json" @json,
+  "moonbitlang/async" @async,
+}

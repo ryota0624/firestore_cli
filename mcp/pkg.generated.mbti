@@ -1,0 +1,72 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ryota0624/firestire_cli/mcp"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub const PROTOCOL_VERSION : String = "2025-06-18"
+
+pub async fn[R : FirestoreReader] handle_request(JsonRpcRequest, R) -> JsonRpcResponse?
+
+pub async fn log(String) -> Unit
+
+pub async fn recv_message() -> Json
+
+pub async fn[R : FirestoreReader] run_server(R) -> Unit
+
+pub async fn send_message(Json) -> Unit
+
+// Errors
+pub(all) suberror TransportError {
+  Eof
+  InvalidJson
+} derive(@debug.Debug)
+
+// Types and methods
+pub struct JsonRpcError {
+  code : Int
+  message_ : String
+  data : Json?
+}
+pub fn JsonRpcError::to_json(Self) -> Json
+
+pub struct JsonRpcRequest {
+  jsonrpc : String
+  id : Json?
+  method_ : String
+  params : Json?
+}
+pub fn JsonRpcRequest::from_json(Json) -> Result[Self, String]
+
+pub struct JsonRpcResponse {
+  jsonrpc : String
+  id : Json?
+  result : Json?
+  error : JsonRpcError?
+}
+pub fn JsonRpcResponse::to_json(Self) -> Json
+
+pub struct Tool {
+  name : String
+  description : String
+  input_schema : Json
+}
+pub fn Tool::to_json(Self) -> Json
+
+pub enum ToolResultContent {
+  Text(String)
+  Error(String)
+}
+pub fn ToolResultContent::to_json(Self) -> Json
+
+// Type aliases
+
+// Traits
+pub(open) trait FirestoreReader {
+  async get_document(Self, String, String) -> Json
+  async list_documents(Self, String, Int?, String?) -> Json
+  async query_collection(Self, String, String, String, Json, Int?) -> Json
+}
+

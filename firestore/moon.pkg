@@ -1,0 +1,8 @@
+import {
+  "ryota0624/googleapis/core" @gcore,
+  "ryota0624/googleapis/http" @ghttp,
+  "ryota0624/googleapis/generated/firestore" @gfs,
+  "ryota0624/googleauth/lib" @googleauth,
+  "mizchi/x/sys" @sys,
+  "moonbitlang/core/json",
+}

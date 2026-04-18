@@ -1,0 +1,62 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ryota0624/firestire_cli/firestore"
+
+import {
+  "ryota0624/googleapis/core",
+  "ryota0624/googleapis/http",
+}
+
+// Values
+pub fn build_document_name(String, String, String, String) -> String
+
+pub async fn build_emulator_client() -> @core.GoogleClient
+
+pub fn build_parent(String, String, String) -> String
+
+pub async fn build_production_client() -> Result[@core.GoogleClient, String]
+
+pub fn bv(Bool) -> @ryota0624/googleapis/generated/firestore.Value
+
+pub fn document_to_json(@ryota0624/googleapis/generated/firestore.Document) -> Json
+
+pub fn dv(Double) -> @ryota0624/googleapis/generated/firestore.Value
+
+pub fn iv(Int64) -> @ryota0624/googleapis/generated/firestore.Value
+
+pub fn nullv() -> @ryota0624/googleapis/generated/firestore.Value
+
+pub fn split_collection_path(String) -> Result[(String, String), String]
+
+pub fn sv(String) -> @ryota0624/googleapis/generated/firestore.Value
+
+pub fn value_to_json(@ryota0624/googleapis/generated/firestore.Value) -> Json
+
+// Errors
+
+// Types and methods
+pub struct Config {
+  project : String
+  database : String
+  emulator_host : String?
+}
+pub fn Config::from_env() -> Result[Self, String]
+
+pub struct FirestoreClient {
+  service : @ryota0624/googleapis/generated/firestore.FirestoreService
+  project : String
+  database : String
+}
+pub async fn FirestoreClient::create_document(Self, String, doc_id? : String, Map[String, @ryota0624/googleapis/generated/firestore.Value]) -> @ryota0624/googleapis/generated/firestore.Document raise @http.HttpError
+pub async fn FirestoreClient::delete_document(Self, String, String) -> Unit raise @http.HttpError
+pub async fn FirestoreClient::get_document(Self, String, String) -> @ryota0624/googleapis/generated/firestore.Document raise @http.HttpError
+pub async fn FirestoreClient::list_documents(Self, String, page_size? : Int, page_token? : String) -> @ryota0624/googleapis/generated/firestore.ListDocumentsResponse raise @http.HttpError
+pub fn FirestoreClient::new(@core.GoogleClient, String, database? : String, base_url? : String) -> Self
+pub async fn FirestoreClient::query_collection(Self, String, String, String, @ryota0624/googleapis/generated/firestore.Value, limit? : Int) -> Array[@ryota0624/googleapis/generated/firestore.Document] raise @http.HttpError
+
+type NoAuthHttpClient
+pub impl @http.HttpClient for NoAuthHttpClient
+
+// Type aliases
+
+// Traits
+

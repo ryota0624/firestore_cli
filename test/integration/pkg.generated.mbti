@@ -1,0 +1,21 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ryota0624/firestire_cli/test/integration"
+
+import {
+  "ryota0624/firestire_cli/firestore",
+  "ryota0624/moonbit_test_containers",
+}
+
+// Values
+pub async fn build_emulator_firestore_client(Int) -> @firestore.FirestoreClient
+
+pub async fn start_firestore_emulator() -> (@moonbit_test_containers.Container, Int)
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

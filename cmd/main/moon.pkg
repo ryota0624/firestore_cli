@@ -1,0 +1,7 @@
+// import {
+//   "ryota0624/firestire_cli" @lib,
+// }
+
+options(
+  "is-main": true,
+)

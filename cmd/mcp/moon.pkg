@@ -1,0 +1,13 @@
+///| Firestore MCP server (stdio JSON-RPC).
+import {
+  "ryota0624/firestire_cli/firestore" @firestore,
+  "ryota0624/firestire_cli/mcp" @mcp_lib,
+  "ryota0624/googleapis/generated/firestore" @gfs,
+  "ryota0624/googleapis/http" @ghttp,
+  "moonbitlang/async",
+  "mizchi/x/sys" @sys,
+}
+
+options(
+  "is-main": true,
+)

@@ -1,0 +1,17 @@
+{
+  "name": "ryota0624/firestire_cli",
+  "version": "0.1.0",
+  "readme": "README.mbt.md",
+  "repository": "",
+  "license": "Apache-2.0",
+  "keywords": [],
+  "description": "",
+  "preferred-target": "native",
+  "deps": {
+    "ryota0624/googleapis": "0.4.0",
+    "ryota0624/googleauth": "0.1.0",
+    "ryota0624/moonbit_test_containers": "0.0.5",
+    "moonbitlang/async": "0.16.6",
+    "mizchi/x": "0.1.3"
+  }
+}
