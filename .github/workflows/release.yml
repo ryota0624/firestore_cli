@@ -22,9 +22,6 @@ jobs:
           - os: ubuntu-latest
             target_triple: x86_64-linux
             archive_ext: tar.gz
-          - os: macos-13
-            target_triple: x86_64-apple-darwin
-            archive_ext: tar.gz
           - os: macos-latest
             target_triple: aarch64-apple-darwin
             archive_ext: tar.gz
