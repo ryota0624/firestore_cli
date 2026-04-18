@@ -92,13 +92,64 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
 }
 
 ///|
-async fn run_with_client(client : @firestore.FirestoreClient) -> Unit {
+/// STUB: batch_get — until copilot lands @firestore.BatchGetResult +
+/// FirestoreClient::batch_get_documents on main. Remove this stub and replace
+/// body with a real call once merged. Contract is documented in
+/// HANDOFF_PHASE3_CURSOR.md.
+pub impl @mcp_lib.FirestoreReader for Reader with batch_get(
+  self,
+  doc_paths : Array[String],
+) {
+  ignore(self)
+  // STUB: until copilot merges firestore batch_get. Returns all-missing array.
+  let arr : Array[Json] = []
+  for p in doc_paths {
+    arr.push(Json::object({ "missing": Json::string(p) }))
+  }
+  Json::array(arr)
+}
+
+///|
+pub impl @mcp_lib.FirestoreWriter for Reader with create_document(
+  self,
+  collection_path,
+  doc_id,
+  fields,
+) {
+  let converted : Map[String, @gfs.Value] = {}
+  for k, v in fields {
+    converted[k] = json_to_value(v)
+  }
+  let doc = match doc_id {
+    Some(id) =>
+      self.client.create_document(collection_path, doc_id=id, converted)
+    None => self.client.create_document(collection_path, converted)
+  }
+  @firestore.document_to_json(doc)
+}
+
+///|
+pub impl @mcp_lib.FirestoreWriter for Reader with delete_document(
+  self,
+  collection_path,
+  doc_id,
+) {
+  self.client.delete_document(collection_path, doc_id)
+}
+
+///|
+async fn run_with_client(
+  client : @firestore.FirestoreClient,
+  read_only : Bool,
+) -> Unit {
   let reader = Reader::{ client, }
-  @mcp_lib.run_server(reader)
+  @mcp_lib.run_server(reader, reader, read_only~)
 }
 
 ///|
 async fn main {
+  let args = @sys.get_cli_args()
+  let read_only = args.iter().any(fn(a) { a == "--readonly" })
   match @firestore.Config::from_env() {
     Err(e) => {
       @mcp_lib.log("config error: \{e}")
@@ -114,7 +165,7 @@ async fn main {
             database=cfg.database,
             base_url?=cfg.emulator_host,
           )
-          run_with_client(fc)
+          run_with_client(fc, read_only)
         }
         None =>
           match @firestore.build_production_client() {
@@ -128,7 +179,7 @@ async fn main {
                 cfg.project,
                 database=cfg.database,
               )
-              run_with_client(fc)
+              run_with_client(fc, read_only)
             }
           }
       }

@@ -8,13 +8,13 @@ import {
 // Values
 pub const PROTOCOL_VERSION : String = "2025-06-18"
 
-pub async fn[R : FirestoreReader] handle_request(JsonRpcRequest, R) -> JsonRpcResponse?
+pub async fn[R : FirestoreReader, W : FirestoreWriter] handle_request(JsonRpcRequest, R, W, read_only? : Bool) -> JsonRpcResponse?
 
 pub async fn log(String) -> Unit
 
 pub async fn recv_message() -> Json
 
-pub async fn[R : FirestoreReader] run_server(R) -> Unit
+pub async fn[R : FirestoreReader, W : FirestoreWriter] run_server(R, W, read_only? : Bool) -> Unit
 
 pub async fn send_message(Json) -> Unit
 
@@ -68,5 +68,11 @@ pub(open) trait FirestoreReader {
   async get_document(Self, String, String) -> Json
   async list_documents(Self, String, Int?, String?) -> Json
   async query_collection(Self, String, String, String, Json, Int?) -> Json
+  async batch_get(Self, Array[String]) -> Json
+}
+
+pub(open) trait FirestoreWriter {
+  async create_document(Self, String, String?, Map[String, Json]) -> Json
+  async delete_document(Self, String, String) -> Unit
 }
 

@@ -15,6 +15,22 @@ pub(open) trait FirestoreReader {
     value : Json,
     limit : Int?,
   ) -> Json
+  async batch_get(Self, doc_paths : Array[String]) -> Json
+}
+
+///|
+pub(open) trait FirestoreWriter {
+  async create_document(
+    Self,
+    collection_path : String,
+    doc_id : String?,
+    fields : Map[String, Json],
+  ) -> Json
+  async delete_document(
+    Self,
+    collection_path : String,
+    doc_id : String,
+  ) -> Unit
 }
 
 ///|
@@ -57,7 +73,7 @@ fn initialize_result() -> Json {
 }
 
 ///|
-fn tool_schemas() -> Array[Tool] {
+fn read_tool_schemas() -> Array[Tool] {
   [
     Tool::{
       name: "firestore_get_document",
@@ -107,12 +123,76 @@ fn tool_schemas() -> Array[Tool] {
         ]),
       }),
     },
+    Tool::{
+      name: "firestore_batch_get",
+      description: "Fetch multiple Firestore documents by fully-qualified document paths.",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "doc_paths": Json::object({
+            "type": Json::string("array"),
+            "items": Json::object({ "type": Json::string("string") }),
+          }),
+        }),
+        "required": Json::array([Json::string("doc_paths")]),
+      }),
+    },
   ]
 }
 
 ///|
-fn tools_list_result() -> Json {
-  let tools = tool_schemas().map(fn(t) { t.to_json() })
+fn write_tool_schemas() -> Array[Tool] {
+  [
+    Tool::{
+      name: "firestore_create_document",
+      description: "Create a Firestore document in the given collection. Optionally specify doc_id; fields values must be JSON primitives.",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "collection_path": Json::object({ "type": Json::string("string") }),
+          "doc_id": Json::object({ "type": Json::string("string") }),
+          "fields": Json::object({ "type": Json::string("object") }),
+        }),
+        "required": Json::array([
+          Json::string("collection_path"),
+          Json::string("fields"),
+        ]),
+      }),
+    },
+    Tool::{
+      name: "firestore_delete_document",
+      description: "Delete a Firestore document by collection path and document id.",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "collection_path": Json::object({ "type": Json::string("string") }),
+          "doc_id": Json::object({ "type": Json::string("string") }),
+        }),
+        "required": Json::array([
+          Json::string("collection_path"),
+          Json::string("doc_id"),
+        ]),
+      }),
+    },
+  ]
+}
+
+///|
+fn tool_schemas(read_only : Bool) -> Array[Tool] {
+  let read = read_tool_schemas()
+  if read_only {
+    return read
+  }
+  let all = read
+  for t in write_tool_schemas() {
+    all.push(t)
+  }
+  all
+}
+
+///|
+fn tools_list_result(read_only : Bool) -> Json {
+  let tools = tool_schemas(read_only).map(fn(t) { t.to_json() })
   Json::object({ "tools": Json::array(tools) })
 }
 
@@ -167,9 +247,47 @@ fn get_opt_int(obj : Map[String, Json], key : String) -> Result[Int?, String] {
 }
 
 ///|
-pub async fn[R : FirestoreReader] handle_request(
+fn get_string_array(
+  obj : Map[String, Json],
+  key : String,
+) -> Result[Array[String], String] {
+  match obj.get(key) {
+    Some(Json::Array(arr)) => {
+      let out : Array[String] = []
+      for item in arr {
+        match item {
+          Json::String(s) => out.push(s)
+          _ => return Err("invalid \{key}: expected array of strings")
+        }
+      }
+      Ok(out)
+    }
+    _ => Err("missing or invalid \{key}")
+  }
+}
+
+///|
+fn get_object(
+  obj : Map[String, Json],
+  key : String,
+) -> Result[Map[String, Json], String] {
+  match obj.get(key) {
+    Some(Json::Object(m)) => Ok(m)
+    _ => Err("missing or invalid \{key}")
+  }
+}
+
+///|
+fn is_write_tool(name : String) -> Bool {
+  name == "firestore_create_document" || name == "firestore_delete_document"
+}
+
+///|
+pub async fn[R : FirestoreReader, W : FirestoreWriter] handle_request(
   req : JsonRpcRequest,
   reader : R,
+  writer : W,
+  read_only~ : Bool = false,
 ) -> JsonRpcResponse? {
   if req.method_.has_prefix("notifications/") {
     return None
@@ -177,9 +295,9 @@ pub async fn[R : FirestoreReader] handle_request(
   guard req.id is Some(rid) else { return None }
   match req.method_ {
     "initialize" => Some(rpc_ok(rid, initialize_result()))
-    "tools/list" => Some(rpc_ok(rid, tools_list_result()))
+    "tools/list" => Some(rpc_ok(rid, tools_list_result(read_only)))
     "tools/call" =>
-      match dispatch_tools_call(reader, req.params) {
+      match dispatch_tools_call(reader, writer, req.params, read_only) {
         Ok(j) => Some(rpc_ok(rid, j))
         Err((code, msg)) => Some(rpc_error(rid, code, msg))
       }
@@ -188,9 +306,11 @@ pub async fn[R : FirestoreReader] handle_request(
 }
 
 ///|
-async fn[R : FirestoreReader] dispatch_tools_call(
+async fn[R : FirestoreReader, W : FirestoreWriter] dispatch_tools_call(
   reader : R,
+  writer : W,
   params : Json?,
+  read_only : Bool,
 ) -> Result[Json, (Int, String)] {
   let obj = match arg_obj(params) {
     Ok(o) => o
@@ -199,6 +319,12 @@ async fn[R : FirestoreReader] dispatch_tools_call(
   let name = match obj.get("name") {
     Some(Json::String(n)) => n
     _ => return Err((-32602, "Invalid params: missing name"))
+  }
+  // Readonly mode: reject write tools before parsing arguments.
+  if read_only && is_write_tool(name) {
+    return Err(
+      (-32600, "Invalid Request: write operations are disabled in readonly mode"),
+    )
   }
   let args = match obj.get("arguments") {
     Some(j) => j
@@ -274,12 +400,68 @@ async fn[R : FirestoreReader] dispatch_tools_call(
         err => Ok(wrap_tool_result(Error(err.to_string())))
       }
     }
+    "firestore_batch_get" => {
+      let doc_paths = match get_string_array(arg_map, "doc_paths") {
+        Ok(a) => a
+        Err(e) => return Err((-32602, e))
+      }
+      try {
+        let j = reader.batch_get(doc_paths)
+        Ok(wrap_tool_result(Text(j.stringify())))
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
+    }
+    "firestore_create_document" => {
+      let collection_path = match get_str(arg_map, "collection_path") {
+        Ok(s) => s
+        Err(e) => return Err((-32602, e))
+      }
+      let doc_id = match get_opt_str(arg_map, "doc_id") {
+        Ok(o) => o
+        Err(e) => return Err((-32602, e))
+      }
+      let fields = match get_object(arg_map, "fields") {
+        Ok(m) => m
+        Err(e) => return Err((-32602, e))
+      }
+      try {
+        let j = writer.create_document(collection_path, doc_id, fields)
+        Ok(wrap_tool_result(Text(j.stringify())))
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
+    }
+    "firestore_delete_document" => {
+      let collection_path = match get_str(arg_map, "collection_path") {
+        Ok(s) => s
+        Err(e) => return Err((-32602, e))
+      }
+      let doc_id = match get_str(arg_map, "doc_id") {
+        Ok(s) => s
+        Err(e) => return Err((-32602, e))
+      }
+      try {
+        writer.delete_document(collection_path, doc_id)
+        Ok(
+          wrap_tool_result(
+            Text("{\"deleted\": \"\{collection_path}/\{doc_id}\"}"),
+          ),
+        )
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
+    }
     _ => Ok(wrap_tool_result(Error("unknown tool: \{name}")))
   }
 }
 
 ///|
-pub async fn[R : FirestoreReader] run_server(reader : R) -> Unit {
+pub async fn[R : FirestoreReader, W : FirestoreWriter] run_server(
+  reader : R,
+  writer : W,
+  read_only~ : Bool = false,
+) -> Unit {
   // Reference `@async` so `moon.pkg` import is used (deny-warn clean).
   ignore(@async.now())
   while true {
@@ -301,7 +483,7 @@ pub async fn[R : FirestoreReader] run_server(reader : R) -> Unit {
         continue
       }
     }
-    match handle_request(req, reader) {
+    match handle_request(req, reader, writer, read_only~) {
       None => continue
       Some(resp) => send_message(resp.to_json())
     }
