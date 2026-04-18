@@ -6,7 +6,7 @@ MoonBit 製の Firestore 操作ツール。CLI と MCP サーバーの 2 バイ�
 
 - `cmd/cli` — `get` / `list` / `query` サブコマンドを持つ Firestore CLI
 - `cmd/mcp` — stdio JSON-RPC で動く Model Context Protocol サーバー
-- `firestore` — `ryota0624/googleapis@0.4.0` をラップした共通クライアント層
+- `firestore` — `ryota0624/googleapis` をラップした共通クライアント層
 - `mcp` — JSON-RPC 2.0 と tool dispatch を実装した MCP ライブラリ層
 - `test/integration` — `google/cloud-sdk:emulators` を `moonbit_test_containers` で起動する統合テスト
 
@@ -67,11 +67,3 @@ moon test -p ryota0624/firestire_cli/mcp
 # 統合テスト（Docker 必須）
 moon test -p ryota0624/firestire_cli/test/integration --target native
 ```
-
-## 依存
-
-- `ryota0624/googleapis` 0.4.0
-- `ryota0624/googleauth` 0.1.0
-- `ryota0624/moonbit_test_containers` 0.0.5
-- `moonbitlang/async` 0.16.6
-- `mizchi/x` 0.1.3
