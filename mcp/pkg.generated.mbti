@@ -67,7 +67,11 @@ pub fn ToolResultContent::to_json(Self) -> Json
 pub(open) trait FirestoreReader {
   async get_document(Self, String, String) -> Json
   async list_documents(Self, String, Int?, String?) -> Json
-  async query_collection(Self, String, String, String, Json, Int?) -> Json
+  async list_collection_ids(Self, String?, Int?, String?) -> Json
+  async aggregate(Self, String, Json, Json?) -> Json
+  async explain_aggregate(Self, String, Json, Json?, Bool?) -> Json
+  async explain_query(Self, String, Json, Bool?) -> Json
+  async query_collection(Self, Map[String, Json]) -> Json
   async batch_get(Self, Array[String]) -> Json
 }
 
