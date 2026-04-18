@@ -1,19 +1,25 @@
 ///|
-/// googleauth の auto_detect_and_authenticate → get_access_token で得たトークンを
-/// @gcore.GoogleClient::new(fn() { token }) に渡す。失敗時は Err。
+/// Auto-detect credentials (gcloud ADC / GOOGLE_APPLICATION_CREDENTIALS /
+/// metadata server) and build a `GoogleClient`.
+///
+/// googleauth 0.2.0 の `get_access_token` は AuthorizedUser と MetadataServer の
+/// トークン取得を実装済みだが、ServiceAccount はまだ未実装 (InvalidCredentials
+/// "Phase 1.5 で未実装"を返す)。そのため ServiceAccount の場合のみ自前で
+/// `get_access_token_with_scopes` を呼び分ける。
 pub async fn build_production_client() -> Result[@gcore.GoogleClient, String] {
   let auth_client = match @googleauth.auto_detect_and_authenticate() {
-    Ok(client) => client
-    Err(_) => return Err("failed to detect credentials")
+    Ok(c) => c
+    Err(e) => return Err("failed to detect credentials: \{describe_auth_err(e)}")
   }
-  match @googleauth.get_access_token(auth_client) {
+  // Pre-flight: fail fast if the token refresh path is broken.
+  match fetch_token(auth_client) {
     Ok(_) => ()
-    Err(_) => return Err("failed to get access token")
+    Err(e) => return Err(e)
   }
-  let get_token : async () -> String = fn() -> String {
-    match @googleauth.get_access_token(auth_client) {
-      Ok(token) => token
-      Err(_) => abort("failed to get access token")
+  let get_token : async () -> String = async fn() -> String {
+    match fetch_token(auth_client) {
+      Ok(t) => t
+      Err(e) => abort(e)
     }
   }
   Ok(@gcore.GoogleClient::new(get_token))
@@ -21,7 +27,6 @@ pub async fn build_production_client() -> Result[@gcore.GoogleClient, String] {
 
 ///|
 /// service account JSON ファイルのパスから GoogleClient を構築する。
-/// 読み込み失敗・パース失敗・認証失敗は Err を返す。
 pub async fn build_production_client_from_service_account(
   path : String,
 ) -> Result[@gcore.GoogleClient, String] {
@@ -33,18 +38,66 @@ pub async fn build_production_client_from_service_account(
   }
   let creds = match @googleauth.parse_service_account_key(content) {
     Ok(c) => c
-    Err(_) => return Err("failed to parse service account key: \{path}")
+    Err(e) => return Err("failed to parse service account key: \{e}")
   }
-  let auth_client = @googleauth.new_auth_client(Some(creds))
-  match @googleauth.get_access_token(auth_client) {
+  let gcc = @googleauth.from_service_account_credentials(creds)
+  match @googleauth.get_access_token_with_scopes(gcc, [CLOUD_PLATFORM_SCOPE]) {
     Ok(_) => ()
-    Err(_) => return Err("failed to get access token from service account")
+    Err(e) =>
+      return Err("failed to get access token: \{describe_cred_err(e)}")
   }
   let get_token : async () -> String = fn() -> String {
-    match @googleauth.get_access_token(auth_client) {
-      Ok(token) => token
-      Err(_) => abort("failed to get access token from service account")
+    match @googleauth.get_access_token_with_scopes(gcc, [CLOUD_PLATFORM_SCOPE]) {
+      Ok(t) => t
+      Err(e) => abort("service account token refresh failed: \{describe_cred_err(e)}")
     }
   }
   Ok(@gcore.GoogleClient::new(get_token))
+}
+
+///|
+const CLOUD_PLATFORM_SCOPE : String = "https://www.googleapis.com/auth/cloud-platform"
+
+///|
+async fn fetch_token(
+  c : @googleauth.GoogleAuthClient,
+) -> Result[String, String] {
+  match c.auth_type {
+    ServiceAccount =>
+      match c.credentials {
+        Some(sa) => {
+          let gcc = @googleauth.from_service_account_credentials(sa)
+          match @googleauth.get_access_token_with_scopes(
+            gcc,
+            [CLOUD_PLATFORM_SCOPE],
+          ) {
+            Ok(t) => Ok(t)
+            Err(e) =>
+              Err("failed to get service account token: \{describe_cred_err(e)}")
+          }
+        }
+        None => Err("GoogleAuthClient missing service_account credentials")
+      }
+    _ =>
+      match @googleauth.get_access_token(c) {
+        Ok(t) => Ok(t)
+        Err(e) => Err("failed to get access token: \{describe_auth_err(e)}")
+      }
+  }
+}
+
+///|
+fn describe_auth_err(e : @googleauth.AuthenticationError) -> String {
+  match e {
+    NoValidCredentials => "no valid credentials"
+    MetadataServerError(m) => "metadata server: \{m}"
+    InvalidCredentials(m) => "invalid credentials: \{m}"
+  }
+}
+
+///|
+fn describe_cred_err(e : @googleauth.ClientCredentialsError) -> String {
+  match e {
+    TokenExchangeFailed(m) => "token exchange failed: \{m}"
+  }
 }

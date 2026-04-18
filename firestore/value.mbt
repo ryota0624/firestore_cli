@@ -85,7 +85,7 @@ pub fn dv(value : Double) -> @gfs.Value {
 ///|
 pub fn nullv() -> @gfs.Value {
   @gfs.Value::{
-    null_value: Some("NULL_VALUE"),
+    null_value: Some(Json::null()),
     boolean_value: None,
     integer_value: None,
     double_value: None,
