@@ -165,6 +165,21 @@ pub enum Aggregator {
 }
 
 ///|
+pub fn aggregators_count() -> Aggregator {
+  Count
+}
+
+///|
+pub fn aggregators_sum(field_path : String) -> Aggregator {
+  Sum(field_path)
+}
+
+///|
+pub fn aggregators_avg(field_path : String) -> Aggregator {
+  Avg(field_path)
+}
+
+///|
 pub struct AggregationResult {
   alias_ : String
   value : @gfs.Value
@@ -471,6 +486,18 @@ pub struct QuerySpec {
   end_at : @gfs.Cursor?
   limit : Int?
   offset : Int?
+}
+
+///|
+pub fn QuerySpec::new(
+  filter : @gfs.Filter?,
+  order_by : Array[@gfs.Order]?,
+  start_at : @gfs.Cursor?,
+  end_at : @gfs.Cursor?,
+  limit : Int?,
+  offset : Int?,
+) -> QuerySpec {
+  QuerySpec::{ filter, order_by, start_at, end_at, limit, offset }
 }
 
 ///|

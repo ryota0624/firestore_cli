@@ -7,6 +7,12 @@ import {
 }
 
 // Values
+pub fn aggregators_avg(String) -> Aggregator
+
+pub fn aggregators_count() -> Aggregator
+
+pub fn aggregators_sum(String) -> Aggregator
+
 pub fn build_document_name(String, String, String, String) -> String
 
 pub async fn build_emulator_client() -> @core.GoogleClient
@@ -102,6 +108,7 @@ pub struct QuerySpec {
   limit : Int?
   offset : Int?
 }
+pub fn QuerySpec::new(@ryota0624/googleapis/generated/firestore.Filter?, Array[@ryota0624/googleapis/generated/firestore.Order]?, @ryota0624/googleapis/generated/firestore.Cursor?, @ryota0624/googleapis/generated/firestore.Cursor?, Int?, Int?) -> Self
 
 // Type aliases
 

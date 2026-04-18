@@ -35,19 +35,80 @@ pub impl FirestoreReader for MockReader with list_documents(
 }
 
 ///|
-pub impl FirestoreReader for MockReader with query_collection(
+pub impl FirestoreReader for MockReader with list_collection_ids(
+  _self,
+  parent_doc_path : String?,
+  page_size : Int?,
+  page_token : String?,
+) {
+  ignore(parent_doc_path)
+  ignore(page_size)
+  ignore(page_token)
+  Json::object({
+    "collectionIds": Json::array([]),
+    "nextPageToken": Json::null(),
+  })
+}
+
+///|
+pub impl FirestoreReader for MockReader with aggregate(
   _self,
   collection_path : String,
-  field : String,
-  op : String,
-  value : Json,
-  limit : Int?,
+  aggregators : Json,
+  where_ : Json?,
 ) {
   ignore(collection_path)
-  ignore(field)
-  ignore(op)
-  ignore(value)
-  ignore(limit)
+  ignore(aggregators)
+  ignore(where_)
+  Json::array([])
+}
+
+///|
+pub impl FirestoreReader for MockReader with explain_aggregate(
+  _self,
+  collection_path : String,
+  aggregators : Json,
+  where_ : Json?,
+  analyze : Bool?,
+) {
+  ignore(collection_path)
+  ignore(aggregators)
+  ignore(where_)
+  ignore(analyze)
+  Json::object({
+    "results": Json::array([]),
+    "metrics": Json::object({
+      "planSummary": Json::null(),
+      "executionStats": Json::null(),
+    }),
+  })
+}
+
+///|
+pub impl FirestoreReader for MockReader with explain_query(
+  _self,
+  collection_path : String,
+  spec : Json,
+  analyze : Bool?,
+) {
+  ignore(collection_path)
+  ignore(spec)
+  ignore(analyze)
+  Json::object({
+    "documents": Json::array([]),
+    "metrics": Json::object({
+      "planSummary": Json::null(),
+      "executionStats": Json::null(),
+    }),
+  })
+}
+
+///|
+pub impl FirestoreReader for MockReader with query_collection(
+  _self,
+  args : Map[String, Json],
+) {
+  ignore(args)
   Json::array([])
 }
 
@@ -126,7 +187,7 @@ async test "initialize returns protocolVersion" {
 }
 
 ///|
-async test "tools/list returns 6 tools (read + write)" {
+async test "tools/list returns 10 tools (read + write)" {
   let req = JsonRpcRequest::{
     jsonrpc: "2.0",
     id: Some(Json::number(2.0)),
@@ -142,7 +203,7 @@ async test "tools/list returns 6 tools (read + write)" {
   guard resp.result is Some(res) else { fail("unexpected") }
   guard res is Object(m) else { fail("unexpected") }
   guard m.get("tools") is Some(Json::Array(tools)) else { fail("unexpected") }
-  assert_eq(tools.length(), 6)
+  assert_eq(tools.length(), 10)
 }
 
 ///|
@@ -222,7 +283,7 @@ async test "readonly tools/list omits write tools" {
   guard resp.result is Some(res) else { fail("unexpected") }
   guard res is Object(m) else { fail("unexpected") }
   guard m.get("tools") is Some(Json::Array(tools)) else { fail("unexpected") }
-  assert_eq(tools.length(), 4)
+  assert_eq(tools.length(), 8)
   let names : Array[String] = []
   for t in tools {
     guard t is Object(tm) else { fail("tool not object") }
@@ -292,9 +353,7 @@ async test "batch_get dispatches and returns reader payload" {
   let payload = Json::array([
     Json::object({
       "found": Json::object({
-        "name": Json::string(
-          "projects/p/databases/(default)/documents/notes/a",
-        ),
+        "name": Json::string("projects/p/databases/(default)/documents/notes/a"),
       }),
     }),
     Json::object({
@@ -330,9 +389,7 @@ async test "batch_get dispatches and returns reader payload" {
   guard m.get("content") is Some(Json::Array(arr)) else { fail("no content") }
   guard arr[0] is Object(c0) else { fail("content[0] not object") }
   guard c0.get("text") is Some(Json::String(text)) else { fail("no text") }
-  let parsed = @json.parse(text) catch {
-    _ => fail("text is not JSON")
-  }
+  let parsed = @json.parse(text) catch { _ => fail("text is not JSON") }
   assert_eq(parsed, payload)
 }
 
