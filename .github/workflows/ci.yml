@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: Show versions
+        run: moon version --all
+
+      - name: Update dependencies
+        run: moon update
+
+      - name: moon check
+        run: moon check
+
+      - name: Build CLI
+        run: moon build --target native cmd/cli
+
+      - name: Build MCP
+        run: moon build --target native cmd/mcp
+
+      - name: Test firestore package
+        run: moon test -p ryota0624/firestire_cli/firestore
+
+      - name: Test mcp package
+        run: moon test -p ryota0624/firestire_cli/mcp

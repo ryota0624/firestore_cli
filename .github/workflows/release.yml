@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0). Creates the tag if missing.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_triple: x86_64-linux
+            archive_ext: tar.gz
+          - os: macos-13
+            target_triple: x86_64-apple-darwin
+            archive_ext: tar.gz
+          - os: macos-latest
+            target_triple: aarch64-apple-darwin
+            archive_ext: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: Update dependencies
+        run: moon update
+
+      - name: Build CLI
+        run: moon build --target native cmd/cli
+
+      - name: Build MCP
+        run: moon build --target native cmd/mcp
+
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stage binaries
+        run: |
+          set -eu
+          STAGE="firestire_cli-${{ steps.tag.outputs.name }}-${{ matrix.target_triple }}"
+          mkdir -p "$STAGE"
+          cp _build/native/release/build/cmd/cli/cli.exe "$STAGE/firestire-cli"
+          cp _build/native/release/build/cmd/mcp/mcp.exe "$STAGE/firestire-mcp"
+          cp README.md LICENSE "$STAGE/" 2>/dev/null || true
+          tar -czf "$STAGE.tar.gz" "$STAGE"
+          shasum -a 256 "$STAGE.tar.gz" > "$STAGE.tar.gz.sha256"
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STAGE }}
+          path: |
+            ${{ env.STAGE }}.tar.gz
+            ${{ env.STAGE }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure tag exists (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if ! git rev-parse "refs/tags/${{ steps.tag.outputs.name }}" >/dev/null 2>&1; then
+            git tag "${{ steps.tag.outputs.name }}"
+            git push origin "${{ steps.tag.outputs.name }}"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List dist
+        run: ls -R dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
