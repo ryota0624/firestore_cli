@@ -56,6 +56,20 @@ pub enum Aggregator {
   Avg(String)
 }
 
+pub struct QuerySpec {
+  filter : @ryota0624/googleapis/generated/firestore.Filter?
+  order_by : Array[@ryota0624/googleapis/generated/firestore.Order]?
+  start_at : @ryota0624/googleapis/generated/firestore.Cursor?
+  end_at : @ryota0624/googleapis/generated/firestore.Cursor?
+  limit : Int?
+  offset : Int?
+}
+
+pub struct QueryExplainResult {
+  documents : Array[@ryota0624/googleapis/generated/firestore.Document]
+  metrics : @ryota0624/googleapis/generated/firestore.ExplainMetrics
+}
+
 pub enum BatchGetResult {
   Found(@ryota0624/googleapis/generated/firestore.Document)
   Missing(String)
@@ -86,38 +100,8 @@ pub fn FirestoreClient::new(@core.GoogleClient, String, database? : String, base
 pub async fn FirestoreClient::query(Self, String, QuerySpec) -> Array[@ryota0624/googleapis/generated/firestore.Document] raise @http.HttpError
 pub async fn FirestoreClient::query_collection(Self, String, String, String, @ryota0624/googleapis/generated/firestore.Value, limit? : Int) -> Array[@ryota0624/googleapis/generated/firestore.Document] raise @http.HttpError
 
-pub struct QueryExplainResult {
-  documents : Array[@ryota0624/googleapis/generated/firestore.Document]
-  metrics : @ryota0624/googleapis/generated/firestore.ExplainMetrics
-}
-
-pub struct QuerySpec {
-  filter : @ryota0624/googleapis/generated/firestore.Filter?
-  order_by : Array[@ryota0624/googleapis/generated/firestore.Order]?
-  start_at : @ryota0624/googleapis/generated/firestore.Cursor?
-  end_at : @ryota0624/googleapis/generated/firestore.Cursor?
-  limit : Int?
-  offset : Int?
-}
-pub async fn FirestoreClient::query(Self, String, QuerySpec) -> Array[@ryota0624/googleapis/generated/firestore.Document] raise @http.HttpError
-pub async fn FirestoreClient::explain_query(Self, String, QuerySpec, analyze? : Bool) -> QueryExplainResult raise @http.HttpError
-
 type NoAuthHttpClient
 pub impl @http.HttpClient for NoAuthHttpClient
-
-pub struct QueryExplainResult {
-  documents : Array[@ryota0624/googleapis/generated/firestore.Document]
-  metrics : @ryota0624/googleapis/generated/firestore.ExplainMetrics
-}
-
-pub struct QuerySpec {
-  filter : @ryota0624/googleapis/generated/firestore.Filter?
-  order_by : Array[@ryota0624/googleapis/generated/firestore.Order]?
-  start_at : @ryota0624/googleapis/generated/firestore.Cursor?
-  end_at : @ryota0624/googleapis/generated/firestore.Cursor?
-  limit : Int?
-  offset : Int?
-}
 
 // Type aliases
 

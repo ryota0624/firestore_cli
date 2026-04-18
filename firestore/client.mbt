@@ -580,8 +580,8 @@ pub async fn FirestoreClient::explain_query(
   }
   let responses = self.service.run_query(parent, request)
   let docs : Array[@gfs.Document] = []
-  for response in responses {
-    match response.document {
+  for i in 0..<responses.length() {
+    match responses[i].document {
       Some(doc) => docs.push(doc)
       None => ()
     }
