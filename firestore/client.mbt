@@ -149,3 +149,59 @@ pub async fn FirestoreClient::delete_document(
   )
   let _ = self.service.delete_document(name)
 }
+
+///|
+/// batch_get_documents の結果要素。
+/// Found は見つかった Document、Missing は見つからなかった full resource name。
+pub enum BatchGetResult {
+  Found(@gfs.Document)
+  Missing(String)
+}
+
+///|
+/// 複数ドキュメントを一括取得する。
+/// - 各 doc_path は "collection_path/doc_id" 形式（例: "notes/doc-a" や
+///   "users/alice/posts/1"）
+/// - 各要素に対し Found / Missing を返す。transaction-only メタデータ応答は skip。
+pub async fn FirestoreClient::batch_get_documents(
+  self : FirestoreClient,
+  doc_paths : Array[String],
+) -> Array[BatchGetResult] raise @ghttp.HttpError {
+  let names : Array[String] = []
+  for p in doc_paths {
+    let (cp, doc_id) = match split_doc_path(p) {
+      Ok(v) => v
+      Err(msg) => raise @ghttp.HttpError::network_message(msg)
+    }
+    names.push(build_document_name(self.project, self.database, cp, doc_id))
+  }
+  let database = "projects/" + self.project + "/databases/" + self.database
+  let request = @gfs.BatchGetDocumentsRequest::{
+    database: None,
+    documents: Some(names),
+    mask: None,
+    transaction: None,
+    new_transaction: None,
+    read_time: None,
+  }
+  let responses = self.service.batch_get_documents(database, request)
+  let results : Array[BatchGetResult] = []
+  for response in responses {
+    match response.found {
+      Some(doc) => {
+        results.push(Found(doc))
+        continue
+      }
+      None => ()
+    }
+    match response.missing {
+      Some(name) => {
+        results.push(Missing(name))
+        continue
+      }
+      None => ()
+    }
+    // transaction-only metadata response — skip
+  }
+  results
+}

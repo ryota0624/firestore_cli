@@ -54,6 +54,44 @@ test "value_to_json: map and array values" {
 }
 
 ///|
+test "json_to_value: string" {
+  assert_eq(json_to_value(Json::string("x")), Ok(sv("x")))
+}
+
+///|
+test "json_to_value: whole number becomes integer" {
+  assert_eq(json_to_value(Json::number(1.0)), Ok(iv(1L)))
+}
+
+///|
+test "json_to_value: fractional number becomes double" {
+  assert_eq(json_to_value(Json::number(1.5)), Ok(dv(1.5)))
+}
+
+///|
+test "json_to_value: boolean" {
+  assert_eq(json_to_value(Json::boolean(true)), Ok(bv(true)))
+  assert_eq(json_to_value(Json::boolean(false)), Ok(bv(false)))
+}
+
+///|
+test "json_to_value: null" {
+  assert_eq(json_to_value(Json::null()), Ok(nullv()))
+}
+
+///|
+test "json_to_value: array rejected" {
+  assert_true(json_to_value(Json::array([Json::string("a")])) is Err(_))
+}
+
+///|
+test "json_to_value: object rejected" {
+  assert_true(
+    json_to_value(Json::object({ "k": Json::string("v") })) is Err(_),
+  )
+}
+
+///|
 test "document_to_json converts fields and metadata" {
   let doc = @gfs.Document::{
     name: Some("projects/p/databases/(default)/documents/users/u1"),

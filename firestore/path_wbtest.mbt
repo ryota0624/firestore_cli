@@ -22,6 +22,29 @@ test "split_collection_path: empty segment rejected" {
 }
 
 ///|
+test "split_doc_path: simple two segments" {
+  assert_eq(split_doc_path("notes/doc-a"), Ok(("notes", "doc-a")))
+}
+
+///|
+test "split_doc_path: nested four segments" {
+  assert_eq(
+    split_doc_path("users/alice/posts/1"),
+    Ok(("users/alice/posts", "1")),
+  )
+}
+
+///|
+test "split_doc_path: single segment rejected" {
+  assert_true(split_doc_path("notes") is Err(_))
+}
+
+///|
+test "split_doc_path: odd total segments (even collection count) rejected" {
+  assert_true(split_doc_path("a/b/c") is Err(_))
+}
+
+///|
 test "build_parent and build_document_name" {
   assert_eq(
     build_parent("p1", "(default)", ""),

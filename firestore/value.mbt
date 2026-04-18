@@ -187,6 +187,34 @@ pub fn value_to_json(v : @gfs.Value) -> Json {
 }
 
 ///|
+/// Json プリミティブ (null, boolean, number, string) を @gfs.Value に変換する。
+/// - Json::Null → null value
+/// - Json::True / Json::False → boolean value
+/// - Json::Number(n) → n.to_int64().to_double() == n なら integer, そうでなければ double
+/// - Json::String(s) → string value
+/// - Json::Array / Json::Object → Err（現在はサポート外）
+pub fn json_to_value(j : Json) -> Result[@gfs.Value, String] {
+  match j {
+    Json::Null => Ok(nullv())
+    Json::True => Ok(bv(true))
+    Json::False => Ok(bv(false))
+    Json::Number(n, ..) => {
+      let i = n.to_int64()
+      if i.to_double() == n {
+        Ok(iv(i))
+      } else {
+        Ok(dv(n))
+      }
+    }
+    Json::String(s) => Ok(sv(s))
+    Json::Array(_) =>
+      Err("json_to_value: arrays are not supported (only primitives)")
+    Json::Object(_) =>
+      Err("json_to_value: objects are not supported (only primitives)")
+  }
+}
+
+///|
 /// Document を {name, fields, create_time, update_time} を持つ Json Object に変換する。
 /// fields は Map[String, Json] として各 Value を value_to_json で変換する。
 pub fn document_to_json(doc : @gfs.Document) -> Json {
