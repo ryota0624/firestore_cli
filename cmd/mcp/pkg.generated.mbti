@@ -8,6 +8,7 @@ package "ryota0624/firestire_cli/cmd/mcp"
 // Types and methods
 type Reader
 pub impl @ryota0624/firestire_cli/mcp.FirestoreReader for Reader
+pub impl @ryota0624/firestire_cli/mcp.FirestoreWriter for Reader
 
 // Type aliases
 
