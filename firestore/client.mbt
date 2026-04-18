@@ -158,20 +158,20 @@ pub async fn FirestoreClient::query_collection(
 }
 
 ///|
-pub enum Aggregator {
+pub(all) enum Aggregator {
   Count
   Sum(String)
   Avg(String)
 }
 
 ///|
-pub struct AggregationResult {
+pub(all) struct AggregationResult {
   alias_ : String
   value : @gfs.Value
 }
 
 ///|
-pub struct AggregationExplainResult {
+pub(all) struct AggregationExplainResult {
   results : Array[AggregationResult]
   metrics : @gfs.ExplainMetrics
 }
@@ -410,7 +410,7 @@ pub async fn FirestoreClient::delete_document(
 ///|
 /// batch_get_documents の結果要素。
 /// Found は見つかった Document、Missing は見つからなかった full resource name。
-pub enum BatchGetResult {
+pub(all) enum BatchGetResult {
   Found(@gfs.Document)
   Missing(String)
 }
@@ -464,7 +464,7 @@ pub async fn FirestoreClient::batch_get_documents(
 }
 
 ///|
-pub struct QuerySpec {
+pub(all) struct QuerySpec {
   filter : @gfs.Filter?
   order_by : Array[@gfs.Order]?
   start_at : @gfs.Cursor?
@@ -474,7 +474,7 @@ pub struct QuerySpec {
 }
 
 ///|
-pub struct QueryExplainResult {
+pub(all) struct QueryExplainResult {
   documents : Array[@gfs.Document]
   metrics : @gfs.ExplainMetrics
 }
