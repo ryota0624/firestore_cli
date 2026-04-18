@@ -46,7 +46,7 @@ pub struct AggregationExplainResult {
 }
 
 pub struct AggregationResult {
-  alias : String
+  alias_ : String
   value : @ryota0624/googleapis/generated/firestore.Value
 }
 
@@ -54,20 +54,6 @@ pub enum Aggregator {
   Count
   Sum(String)
   Avg(String)
-}
-
-pub struct QuerySpec {
-  filter : @ryota0624/googleapis/generated/firestore.Filter?
-  order_by : Array[@ryota0624/googleapis/generated/firestore.Order]?
-  start_at : @ryota0624/googleapis/generated/firestore.Cursor?
-  end_at : @ryota0624/googleapis/generated/firestore.Cursor?
-  limit : Int?
-  offset : Int?
-}
-
-pub struct QueryExplainResult {
-  documents : Array[@ryota0624/googleapis/generated/firestore.Document]
-  metrics : @ryota0624/googleapis/generated/firestore.ExplainMetrics
 }
 
 pub enum BatchGetResult {
@@ -102,6 +88,20 @@ pub async fn FirestoreClient::query_collection(Self, String, String, String, @ry
 
 type NoAuthHttpClient
 pub impl @http.HttpClient for NoAuthHttpClient
+
+pub struct QueryExplainResult {
+  documents : Array[@ryota0624/googleapis/generated/firestore.Document]
+  metrics : @ryota0624/googleapis/generated/firestore.ExplainMetrics
+}
+
+pub struct QuerySpec {
+  filter : @ryota0624/googleapis/generated/firestore.Filter?
+  order_by : Array[@ryota0624/googleapis/generated/firestore.Order]?
+  start_at : @ryota0624/googleapis/generated/firestore.Cursor?
+  end_at : @ryota0624/googleapis/generated/firestore.Cursor?
+  limit : Int?
+  offset : Int?
+}
 
 // Type aliases
 

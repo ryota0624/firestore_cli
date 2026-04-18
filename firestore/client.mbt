@@ -166,7 +166,7 @@ pub enum Aggregator {
 
 ///|
 pub struct AggregationResult {
-  alias : String
+  alias_ : String
   value : @gfs.Value
 }
 
@@ -254,7 +254,7 @@ pub async fn FirestoreClient::aggregate(
         match result.aggregate_fields {
           Some(fields) =>
             for key, value in fields {
-              results.push(AggregationResult::{ alias: key, value })
+              results.push(AggregationResult::{ alias_: key, value })
             }
           None => ()
         }
@@ -344,7 +344,7 @@ pub async fn FirestoreClient::explain_aggregate(
         match result.aggregate_fields {
           Some(fields) =>
             for key, value in fields {
-              results.push(AggregationResult::{ alias: key, value })
+              results.push(AggregationResult::{ alias_: key, value })
             }
           None => ()
         }
