@@ -92,19 +92,19 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
 }
 
 ///|
-/// STUB: batch_get — until copilot lands @firestore.BatchGetResult +
-/// FirestoreClient::batch_get_documents on main. Remove this stub and replace
-/// body with a real call once merged. Contract is documented in
-/// HANDOFF_PHASE3_CURSOR.md.
 pub impl @mcp_lib.FirestoreReader for Reader with batch_get(
   self,
   doc_paths : Array[String],
 ) {
-  ignore(self)
-  // STUB: until copilot merges firestore batch_get. Returns all-missing array.
+  let results = self.client.batch_get_documents(doc_paths)
   let arr : Array[Json] = []
-  for p in doc_paths {
-    arr.push(Json::object({ "missing": Json::string(p) }))
+  for r in results {
+    match r {
+      @firestore.BatchGetResult::Found(doc) =>
+        arr.push(Json::object({ "found": @firestore.document_to_json(doc) }))
+      @firestore.BatchGetResult::Missing(name) =>
+        arr.push(Json::object({ "missing": Json::string(name) }))
+    }
   }
   Json::array(arr)
 }
