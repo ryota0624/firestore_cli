@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ryota0624/firestire_cli/firestore"
+package "ryota0624/firestore_cli/firestore"
 
 import {
   "ryota0624/googleapis/core",
@@ -40,7 +40,23 @@ pub fn value_to_json(@ryota0624/googleapis/generated/firestore.Value) -> Json
 // Errors
 
 // Types and methods
-pub enum BatchGetResult {
+pub(all) struct AggregationExplainResult {
+  results : Array[AggregationResult]
+  metrics : @ryota0624/googleapis/generated/firestore.ExplainMetrics
+}
+
+pub(all) struct AggregationResult {
+  alias_ : String
+  value : @ryota0624/googleapis/generated/firestore.Value
+}
+
+pub(all) enum Aggregator {
+  Count
+  Sum(String)
+  Avg(String)
+}
+
+pub(all) enum BatchGetResult {
   Found(@ryota0624/googleapis/generated/firestore.Document)
   Missing(String)
 }
@@ -57,16 +73,35 @@ pub struct FirestoreClient {
   project : String
   database : String
 }
+pub async fn FirestoreClient::aggregate(Self, String, Array[(String, Aggregator)], where_? : @ryota0624/googleapis/generated/firestore.Filter) -> Array[AggregationResult] raise @http.HttpError
 pub async fn FirestoreClient::batch_get_documents(Self, Array[String]) -> Array[BatchGetResult] raise @http.HttpError
 pub async fn FirestoreClient::create_document(Self, String, doc_id? : String, Map[String, @ryota0624/googleapis/generated/firestore.Value]) -> @ryota0624/googleapis/generated/firestore.Document raise @http.HttpError
 pub async fn FirestoreClient::delete_document(Self, String, String) -> Unit raise @http.HttpError
+pub async fn FirestoreClient::explain_aggregate(Self, String, Array[(String, Aggregator)], where_? : @ryota0624/googleapis/generated/firestore.Filter, analyze? : Bool) -> AggregationExplainResult raise @http.HttpError
+pub async fn FirestoreClient::explain_query(Self, String, QuerySpec, analyze? : Bool) -> QueryExplainResult raise @http.HttpError
 pub async fn FirestoreClient::get_document(Self, String, String) -> @ryota0624/googleapis/generated/firestore.Document raise @http.HttpError
+pub async fn FirestoreClient::list_collection_ids(Self, parent_doc_path? : String, page_size? : Int, page_token? : String) -> (Array[String], String?) raise @http.HttpError
 pub async fn FirestoreClient::list_documents(Self, String, page_size? : Int, page_token? : String) -> @ryota0624/googleapis/generated/firestore.ListDocumentsResponse raise @http.HttpError
 pub fn FirestoreClient::new(@core.GoogleClient, String, database? : String, base_url? : String) -> Self
+pub async fn FirestoreClient::query(Self, String, QuerySpec) -> Array[@ryota0624/googleapis/generated/firestore.Document] raise @http.HttpError
 pub async fn FirestoreClient::query_collection(Self, String, String, String, @ryota0624/googleapis/generated/firestore.Value, limit? : Int) -> Array[@ryota0624/googleapis/generated/firestore.Document] raise @http.HttpError
 
 type NoAuthHttpClient
 pub impl @http.HttpClient for NoAuthHttpClient
+
+pub(all) struct QueryExplainResult {
+  documents : Array[@ryota0624/googleapis/generated/firestore.Document]
+  metrics : @ryota0624/googleapis/generated/firestore.ExplainMetrics
+}
+
+pub(all) struct QuerySpec {
+  filter : @ryota0624/googleapis/generated/firestore.Filter?
+  order_by : Array[@ryota0624/googleapis/generated/firestore.Order]?
+  start_at : @ryota0624/googleapis/generated/firestore.Cursor?
+  end_at : @ryota0624/googleapis/generated/firestore.Cursor?
+  limit : Int?
+  offset : Int?
+}
 
 // Type aliases
 

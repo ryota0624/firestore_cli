@@ -1,6 +1,6 @@
 // Integration tests (blackbox). Requires Docker for the Firestore emulator.
 import {
-  "ryota0624/firestire_cli/firestore" @firestore,
+  "ryota0624/firestore_cli/firestore" @firestore,
   "ryota0624/googleapis/generated/firestore" @gfs,
   "ryota0624/moonbit_test_containers" @tc,
   "moonbitlang/async",

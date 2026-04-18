@@ -7,14 +7,32 @@ pub(open) trait FirestoreReader {
     page_size : Int?,
     page_token : String?,
   ) -> Json
-  async query_collection(
+  async list_collection_ids(
+    Self,
+    parent_doc_path : String?,
+    page_size : Int?,
+    page_token : String?,
+  ) -> Json
+  async aggregate(
     Self,
     collection_path : String,
-    field : String,
-    op : String,
-    value : Json,
-    limit : Int?,
+    aggregators : Json,
+    where_ : Json?,
   ) -> Json
+  async explain_aggregate(
+    Self,
+    collection_path : String,
+    aggregators : Json,
+    where_ : Json?,
+    analyze : Bool?,
+  ) -> Json
+  async explain_query(
+    Self,
+    collection_path : String,
+    spec : Json,
+    analyze : Bool?,
+  ) -> Json
+  async query_collection(Self, args : Map[String, Json]) -> Json
   async batch_get(Self, doc_paths : Array[String]) -> Json
 }
 
@@ -26,11 +44,7 @@ pub(open) trait FirestoreWriter {
     doc_id : String?,
     fields : Map[String, Json],
   ) -> Json
-  async delete_document(
-    Self,
-    collection_path : String,
-    doc_id : String,
-  ) -> Unit
+  async delete_document(Self, collection_path : String, doc_id : String) -> Unit
 }
 
 ///|
@@ -66,7 +80,7 @@ fn initialize_result() -> Json {
     "protocolVersion": Json::string(PROTOCOL_VERSION),
     "capabilities": Json::object({ "tools": Json::object({}) }),
     "serverInfo": Json::object({
-      "name": Json::string("firestire-mcp"),
+      "name": Json::string("firestore-mcp"),
       "version": Json::string("0.1.0"),
     }),
   })
@@ -104,8 +118,70 @@ fn read_tool_schemas() -> Array[Tool] {
       }),
     },
     Tool::{
+      name: "firestore_list_collection_ids",
+      description: "List sub-collection ids under the database root or under a parent document path.",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "parent_doc_path": Json::object({ "type": Json::string("string") }),
+          "page_size": Json::object({ "type": Json::string("integer") }),
+          "page_token": Json::object({ "type": Json::string("string") }),
+        }),
+        "required": Json::array([]),
+      }),
+    },
+    Tool::{
+      name: "firestore_aggregate",
+      description: "Run aggregation queries (count, sum, avg) on a collection with optional single-field where clause.",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "collection_path": Json::object({ "type": Json::string("string") }),
+          "aggregators": Json::object({ "type": Json::string("array") }),
+          "where": Json::object({ "type": Json::string("object") }),
+        }),
+        "required": Json::array([
+          Json::string("collection_path"),
+          Json::string("aggregators"),
+        ]),
+      }),
+    },
+    Tool::{
+      name: "firestore_explain_query",
+      description: "Explain a structured query: returns result documents and plan metrics (planSummary, executionStats).",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "collection_path": Json::object({ "type": Json::string("string") }),
+          "spec": Json::object({ "type": Json::string("object") }),
+          "analyze": Json::object({ "type": Json::string("boolean") }),
+        }),
+        "required": Json::array([
+          Json::string("collection_path"),
+          Json::string("spec"),
+        ]),
+      }),
+    },
+    Tool::{
+      name: "firestore_explain_aggregate",
+      description: "Explain an aggregation query with optional analyze flag; returns aggregate results and metrics.",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "collection_path": Json::object({ "type": Json::string("string") }),
+          "aggregators": Json::object({ "type": Json::string("array") }),
+          "where": Json::object({ "type": Json::string("object") }),
+          "analyze": Json::object({ "type": Json::string("boolean") }),
+        }),
+        "required": Json::array([
+          Json::string("collection_path"),
+          Json::string("aggregators"),
+        ]),
+      }),
+    },
+    Tool::{
       name: "firestore_query_collection",
-      description: "Run a structured query against a collection (single field filter).",
+      description: "Run a query against a collection. Legacy: field, op, value, and optional limit. Extended: optional filter (Firestore Filter shape), order_by, start_at, end_at, offset, limit. If filter is set, it overrides field/op/value.",
       input_schema: Json::object({
         "type": Json::string("object"),
         "properties": Json::object({
@@ -114,13 +190,13 @@ fn read_tool_schemas() -> Array[Tool] {
           "op": Json::object({ "type": Json::string("string") }),
           "value": Json::object({}),
           "limit": Json::object({ "type": Json::string("integer") }),
+          "filter": Json::object({ "type": Json::string("object") }),
+          "order_by": Json::object({ "type": Json::string("array") }),
+          "start_at": Json::object({ "type": Json::string("object") }),
+          "end_at": Json::object({ "type": Json::string("object") }),
+          "offset": Json::object({ "type": Json::string("integer") }),
         }),
-        "required": Json::array([
-          Json::string("collection_path"),
-          Json::string("field"),
-          Json::string("op"),
-          Json::string("value"),
-        ]),
+        "required": Json::array([Json::string("collection_path")]),
       }),
     },
     Tool::{
@@ -247,6 +323,16 @@ fn get_opt_int(obj : Map[String, Json], key : String) -> Result[Int?, String] {
 }
 
 ///|
+fn get_opt_bool(obj : Map[String, Json], key : String) -> Result[Bool?, String] {
+  match obj.get(key) {
+    None | Some(Json::Null) => Ok(None)
+    Some(Json::True) => Ok(Some(true))
+    Some(Json::False) => Ok(Some(false))
+    _ => Err("invalid \{key}")
+  }
+}
+
+///|
 fn get_string_array(
   obj : Map[String, Json],
   key : String,
@@ -287,7 +373,7 @@ pub async fn[R : FirestoreReader, W : FirestoreWriter] handle_request(
   req : JsonRpcRequest,
   reader : R,
   writer : W,
-  read_only~ : Bool = false,
+  read_only? : Bool = false,
 ) -> JsonRpcResponse? {
   if req.method_.has_prefix("notifications/") {
     return None
@@ -323,7 +409,9 @@ async fn[R : FirestoreReader, W : FirestoreWriter] dispatch_tools_call(
   // Readonly mode: reject write tools before parsing arguments.
   if read_only && is_write_tool(name) {
     return Err(
-      (-32600, "Invalid Request: write operations are disabled in readonly mode"),
+      (
+        -32600, "Invalid Request: write operations are disabled in readonly mode",
+      ),
     )
   }
   let args = match obj.get("arguments") {
@@ -370,36 +458,101 @@ async fn[R : FirestoreReader, W : FirestoreWriter] dispatch_tools_call(
         err => Ok(wrap_tool_result(Error(err.to_string())))
       }
     }
-    "firestore_query_collection" => {
-      let collection_path = match get_str(arg_map, "collection_path") {
-        Ok(s) => s
+    "firestore_list_collection_ids" => {
+      let parent_doc_path = match get_opt_str(arg_map, "parent_doc_path") {
+        Ok(o) => o
         Err(e) => return Err((-32602, e))
       }
-      let field = match get_str(arg_map, "field") {
-        Ok(s) => s
+      let page_size = match get_opt_int(arg_map, "page_size") {
+        Ok(o) => o
         Err(e) => return Err((-32602, e))
       }
-      let op = match get_str(arg_map, "op") {
-        Ok(s) => s
-        Err(e) => return Err((-32602, e))
-      }
-      let value = match arg_map.get("value") {
-        Some(v) => v
-        None => return Err((-32602, "missing value"))
-      }
-      let limit = match get_opt_int(arg_map, "limit") {
+      let page_token = match get_opt_str(arg_map, "page_token") {
         Ok(o) => o
         Err(e) => return Err((-32602, e))
       }
       try {
-        let j = reader.query_collection(
-          collection_path, field, op, value, limit,
+        let j = reader.list_collection_ids(
+          parent_doc_path, page_size, page_token,
         )
         Ok(wrap_tool_result(Text(j.stringify())))
       } catch {
         err => Ok(wrap_tool_result(Error(err.to_string())))
       }
     }
+    "firestore_aggregate" => {
+      let collection_path = match get_str(arg_map, "collection_path") {
+        Ok(s) => s
+        Err(e) => return Err((-32602, e))
+      }
+      let aggregators = match arg_map.get("aggregators") {
+        Some(j) => j
+        None => return Err((-32602, "missing aggregators"))
+      }
+      let where_ = match arg_map.get("where") {
+        None | Some(Json::Null) => None
+        Some(j) => Some(j)
+      }
+      try {
+        let j = reader.aggregate(collection_path, aggregators, where_)
+        Ok(wrap_tool_result(Text(j.stringify())))
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
+    }
+    "firestore_explain_query" => {
+      let collection_path = match get_str(arg_map, "collection_path") {
+        Ok(s) => s
+        Err(e) => return Err((-32602, e))
+      }
+      let spec = match arg_map.get("spec") {
+        Some(j) => j
+        None => return Err((-32602, "missing spec"))
+      }
+      let analyze = match get_opt_bool(arg_map, "analyze") {
+        Ok(o) => o
+        Err(e) => return Err((-32602, e))
+      }
+      try {
+        let j = reader.explain_query(collection_path, spec, analyze)
+        Ok(wrap_tool_result(Text(j.stringify())))
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
+    }
+    "firestore_explain_aggregate" => {
+      let collection_path = match get_str(arg_map, "collection_path") {
+        Ok(s) => s
+        Err(e) => return Err((-32602, e))
+      }
+      let aggregators = match arg_map.get("aggregators") {
+        Some(j) => j
+        None => return Err((-32602, "missing aggregators"))
+      }
+      let where_ = match arg_map.get("where") {
+        None | Some(Json::Null) => None
+        Some(j) => Some(j)
+      }
+      let analyze = match get_opt_bool(arg_map, "analyze") {
+        Ok(o) => o
+        Err(e) => return Err((-32602, e))
+      }
+      try {
+        let j = reader.explain_aggregate(
+          collection_path, aggregators, where_, analyze,
+        )
+        Ok(wrap_tool_result(Text(j.stringify())))
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
+    }
+    "firestore_query_collection" =>
+      try {
+        let j = reader.query_collection(arg_map)
+        Ok(wrap_tool_result(Text(j.stringify())))
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
     "firestore_batch_get" => {
       let doc_paths = match get_string_array(arg_map, "doc_paths") {
         Ok(a) => a
@@ -460,7 +613,7 @@ async fn[R : FirestoreReader, W : FirestoreWriter] dispatch_tools_call(
 pub async fn[R : FirestoreReader, W : FirestoreWriter] run_server(
   reader : R,
   writer : W,
-  read_only~ : Bool = false,
+  read_only? : Bool = false,
 ) -> Unit {
   // Reference `@async` so `moon.pkg` import is used (deny-warn clean).
   ignore(@async.now())

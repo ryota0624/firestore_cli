@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-13]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -36,7 +36,7 @@ jobs:
         run: moon build --target native cmd/mcp
 
       - name: Test firestore package
-        run: moon test -p ryota0624/firestire_cli/firestore
+        run: moon test -p ryota0624/firestore_cli/firestore
 
       - name: Test mcp package
-        run: moon test -p ryota0624/firestire_cli/mcp
+        run: moon test -p ryota0624/firestore_cli/mcp

@@ -1,9 +1,14 @@
 ///|
 const USAGE =
-  #|firestire <subcommand> [options]
+  #|firestore <subcommand> [options]
   #|  get <collection_path>/<doc_id>
   #|  list <collection_path> [--page-size N] [--page-token TOKEN]
-  #|  query <collection_path> --where FIELD=VALUE [--op OP] [--limit N]
+  #|  list-collections [--parent users/alice] [--page-size N] [--page-token TOKEN]
+  #|  query <collection_path> [--where FIELD=VALUE] [--op OP] [--and FIELD=VALUE:OP ...]
+  #|                         [--order FIELD[:asc|desc] ...] [--offset N] [--limit N]
+  #|                         [--explain] [--analyze]
+  #|  aggregate <collection_path> [--count [ALIAS]] [--sum FIELD[:ALIAS]] [--avg FIELD[:ALIAS]]
+  #|                              [--where FIELD=VALUE] [--op OP] [--explain] [--analyze]
   #|  create <collection_path> [--doc-id ID] --fields JSON
   #|  delete <collection_path>/<doc_id>
   #|
@@ -143,13 +148,14 @@ async fn run(args : Array[String]) -> Int {
         database~,
         base_url=host,
       )
-    None =>
-      @firestore.FirestoreClient::new(google_client, project, database~)
+    None => @firestore.FirestoreClient::new(google_client, project, database~)
   }
   match sub {
     "get" => cmd_get(fc, sub_args)
     "list" => cmd_list(fc, sub_args)
+    "list-collections" => cmd_list_collections(fc, sub_args)
     "query" => cmd_query(fc, sub_args)
+    "aggregate" => cmd_aggregate(fc, sub_args)
     "create" => cmd_create(fc, sub_args)
     "delete" => cmd_delete(fc, sub_args)
     _ => {
@@ -162,7 +168,7 @@ async fn run(args : Array[String]) -> Int {
 ///|
 async fn cmd_get(fc : @firestore.FirestoreClient, args : Array[String]) -> Int {
   if args.length() < 1 {
-    raise CliError("usage: firestire get <collection_path>/<doc_id>")
+    raise CliError("usage: firestore get <collection_path>/<doc_id>")
   }
   let (cp, doc_id) = match @firestore.split_doc_path(args[0]) {
     Ok(v) => v
@@ -179,7 +185,7 @@ async fn cmd_get(fc : @firestore.FirestoreClient, args : Array[String]) -> Int {
 async fn cmd_list(fc : @firestore.FirestoreClient, args : Array[String]) -> Int {
   if args.length() < 1 {
     raise CliError(
-      "usage: firestire list <collection_path> [--page-size N] [--page-token T]",
+      "usage: firestore list <collection_path> [--page-size N] [--page-token T]",
     )
   }
   let cp = args[0]
@@ -217,22 +223,31 @@ async fn cmd_query(
 ) -> Int {
   if args.length() < 1 {
     raise CliError(
-      "usage: firestire query <collection_path> --where FIELD=VALUE [--op OP] [--limit N]",
+      "usage: firestore query <collection_path> [--where FIELD=VALUE] [--op OP] [--and FIELD=VALUE:OP ...] [--order FIELD[:asc|desc] ...] [--offset N] [--limit N] [--explain] [--analyze]",
     )
   }
   let cp = args[0]
-  let where_arg = match get_flag(args, "--where") {
-    Some(s) => s
-    None => raise CliError("--where FIELD=VALUE is required")
+  let filters : Array[@gfs.Filter] = []
+  let op = get_flag(args, "--op").unwrap_or("EQUAL")
+  match get_flag(args, "--where") {
+    Some(where_arg) => {
+      let (field, value_str) = parse_where_clause(where_arg)
+      filters.push(make_field_filter(field, op, value_str))
+    }
+    None => ()
   }
-  let (field, value_str) = match split_once(where_arg, "=") {
-    Some(v) => v
-    None => raise CliError("--where must be FIELD=VALUE, got \"\{where_arg}\"")
+  let and_flags = get_flags(args, "--and")
+  for and_arg in and_flags {
+    let (field, value_str, and_op) = parse_and_clause(and_arg)
+    filters.push(make_field_filter(field, and_op, value_str))
   }
-  let op = match get_flag(args, "--op") {
-    Some(s) => s
-    None => "EQUAL"
+  let filter = combine_filters_and(filters)
+  let order_specs = get_flags(args, "--order")
+  let orders : Array[@gfs.Order] = []
+  for order_spec in order_specs {
+    orders.push(parse_order(order_spec))
   }
+  let order_by = if orders.is_empty() { None } else { Some(orders) }
   let limit = match get_flag(args, "--limit") {
     Some(s) => {
       let n = @string.parse_int(s) catch {
@@ -242,17 +257,297 @@ async fn cmd_query(
     }
     None => None
   }
-  let docs = fc.query_collection(
-    cp,
-    field,
-    op,
-    @firestore.sv(value_str),
-    limit?,
-  ) catch {
+  let offset = match get_flag(args, "--offset") {
+    Some(s) => {
+      let n = @string.parse_int(s) catch {
+        e => raise CliError("--offset: \{e}")
+      }
+      Some(n)
+    }
+    None => None
+  }
+  let (parent_suffix, collection_id) = match
+    @firestore.split_collection_path(cp) {
+    Ok(parts) => parts
+    Err(msg) => raise CliError(msg)
+  }
+  let parent = @firestore.build_parent(fc.project, fc.database, parent_suffix)
+  let query = @gfs.StructuredQuery::{
+    select: None,
+    from: Some([
+      @gfs.CollectionSelector::{
+        collection_id: Some(collection_id),
+        all_descendants: None,
+      },
+    ]),
+    where_: filter,
+    order_by,
+    start_at: None,
+    end_at: None,
+    offset,
+    limit,
+    find_nearest: None,
+  }
+  let explain = has_flag(args, "--explain")
+  let analyze = has_flag(args, "--analyze")
+  if explain {
+    let request = @gfs.RunQueryRequest::{
+      parent: None,
+      structured_query: Some(query),
+      transaction: None,
+      new_transaction: None,
+      read_time: None,
+      explain_options: Some(@gfs.ExplainOptions::{ analyze: Some(analyze) }),
+    }
+    let responses = fc.service.run_query(parent, request) catch {
+      e => raise CliError("firestore: \{format_http_error(e)}")
+    }
+    let docs : Array[@gfs.Document] = []
+    let mut metrics : @gfs.ExplainMetrics? = None
+    for response in responses {
+      match response.document {
+        Some(doc) => docs.push(doc)
+        None => ()
+      }
+      match response.explain_metrics {
+        Some(m) => metrics = Some(m)
+        None => ()
+      }
+    }
+    let documents_json : Array[Json] = docs
+      .iter()
+      .map(@firestore.document_to_json)
+      .collect()
+    let out : Map[String, Json] = {}
+    out["documents"] = Json::array(documents_json)
+    out["metrics"] = explain_metrics_to_json(
+      metrics.unwrap_or(@gfs.ExplainMetrics::{
+        plan_summary: None,
+        execution_stats: None,
+      }),
+    )
+    println(Json::object(out).stringify(indent=2))
+  } else {
+    let request = @gfs.RunQueryRequest::{
+      parent: None,
+      structured_query: Some(query),
+      transaction: None,
+      new_transaction: None,
+      read_time: None,
+      explain_options: None,
+    }
+    let responses = fc.service.run_query(parent, request) catch {
+      e => raise CliError("firestore: \{format_http_error(e)}")
+    }
+    let docs : Array[@gfs.Document] = []
+    for response in responses {
+      match response.document {
+        Some(doc) => docs.push(doc)
+        None => ()
+      }
+    }
+    let arr : Array[Json] = docs
+      .iter()
+      .map(@firestore.document_to_json)
+      .collect()
+    println(Json::array(arr).stringify(indent=2))
+  }
+  0
+}
+
+///|
+async fn cmd_list_collections(
+  fc : @firestore.FirestoreClient,
+  args : Array[String],
+) -> Int {
+  let parent = get_flag(args, "--parent")
+  let page_size = match get_flag(args, "--page-size") {
+    Some(s) => {
+      let n = @string.parse_int(s) catch {
+        e => raise CliError("--page-size: \{e}")
+      }
+      Some(n)
+    }
+    None => None
+  }
+  let page_token = get_flag(args, "--page-token")
+  let (collection_ids, next_page_token) = match parent {
+    Some(parent_doc_path) =>
+      fc.list_collection_ids(parent_doc_path~, page_size?, page_token?) catch {
+        e => raise CliError("firestore: \{format_http_error(e)}")
+      }
+    None =>
+      fc.list_collection_ids(page_size?, page_token?) catch {
+        e => raise CliError("firestore: \{format_http_error(e)}")
+      }
+  }
+  let out : Map[String, Json] = {}
+  out["collectionIds"] = Json::array(collection_ids.map(Json::string))
+  match next_page_token {
+    Some(token) => out["nextPageToken"] = Json::string(token)
+    None => ()
+  }
+  println(Json::object(out).stringify(indent=2))
+  0
+}
+
+///|
+async fn cmd_aggregate(
+  fc : @firestore.FirestoreClient,
+  args : Array[String],
+) -> Int {
+  if args.length() < 1 {
+    raise CliError(
+      "usage: firestore aggregate <collection_path> [--count [ALIAS]] [--sum FIELD[:ALIAS]] [--avg FIELD[:ALIAS]] [--where FIELD=VALUE] [--op OP] [--explain] [--analyze]",
+    )
+  }
+  let cp = args[0]
+  let aggregations : Array[@gfs.Aggregation] = []
+  let mut i = 1
+  let mut count_index = 0
+  while i < args.length() {
+    let token = args[i]
+    if token == "--count" {
+      count_index += 1
+      let mut alias_name = "count_\{count_index}"
+      if i + 1 < args.length() && !is_flag_token(args[i + 1]) {
+        alias_name = args[i + 1]
+        i += 1
+      }
+      aggregations.push(@gfs.Aggregation::{
+        count: Some(@gfs.Count::{ up_to: None }),
+        sum: None,
+        avg: None,
+        alias_: Some(alias_name),
+      })
+      i += 1
+      continue
+    }
+    if token == "--sum" {
+      if i + 1 >= args.length() {
+        raise CliError("--sum requires FIELD[:ALIAS]")
+      }
+      let (field, alias_name) = parse_agg_field_alias(args[i + 1], "sum")
+      aggregations.push(@gfs.Aggregation::{
+        count: None,
+        sum: Some(@gfs.Sum::{
+          field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
+        }),
+        avg: None,
+        alias_: Some(alias_name),
+      })
+      i += 2
+      continue
+    }
+    if token == "--avg" {
+      if i + 1 >= args.length() {
+        raise CliError("--avg requires FIELD[:ALIAS]")
+      }
+      let (field, alias_name) = parse_agg_field_alias(args[i + 1], "avg")
+      aggregations.push(@gfs.Aggregation::{
+        count: None,
+        sum: None,
+        avg: Some(@gfs.Avg::{
+          field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
+        }),
+        alias_: Some(alias_name),
+      })
+      i += 2
+      continue
+    }
+    i += 1
+  }
+  if aggregations.is_empty() {
+    raise CliError(
+      "at least one aggregator is required (--count, --sum, --avg)",
+    )
+  }
+
+  let where_filter = match get_flag(args, "--where") {
+    Some(where_arg) => {
+      let op = get_flag(args, "--op").unwrap_or("EQUAL")
+      let (field, value_str) = parse_where_clause(where_arg)
+      Some(make_field_filter(field, op, value_str))
+    }
+    None => None
+  }
+  let explain = has_flag(args, "--explain")
+  let analyze = has_flag(args, "--analyze")
+  let (parent_suffix, collection_id) = match
+    @firestore.split_collection_path(cp) {
+    Ok(parts) => parts
+    Err(msg) => raise CliError(msg)
+  }
+  let parent = @firestore.build_parent(fc.project, fc.database, parent_suffix)
+  let query = @gfs.StructuredQuery::{
+    select: None,
+    from: Some([
+      @gfs.CollectionSelector::{
+        collection_id: Some(collection_id),
+        all_descendants: None,
+      },
+    ]),
+    where_: where_filter,
+    order_by: None,
+    start_at: None,
+    end_at: None,
+    offset: None,
+    limit: None,
+    find_nearest: None,
+  }
+  let request = @gfs.RunAggregationQueryRequest::{
+    parent: None,
+    structured_aggregation_query: Some(@gfs.StructuredAggregationQuery::{
+      structured_query: Some(query),
+      aggregations: Some(aggregations),
+    }),
+    transaction: None,
+    new_transaction: None,
+    read_time: None,
+    explain_options: if explain {
+      Some(@gfs.ExplainOptions::{ analyze: Some(analyze) })
+    } else {
+      None
+    },
+  }
+  let responses = fc.service.run_aggregation_query(parent, request) catch {
     e => raise CliError("firestore: \{format_http_error(e)}")
   }
-  let arr : Array[Json] = docs.iter().map(@firestore.document_to_json).collect()
-  println(Json::array(arr).stringify(indent=2))
+  let results : Array[Json] = []
+  let mut metrics : @gfs.ExplainMetrics? = None
+  for response in responses {
+    match response.result {
+      Some(result) =>
+        match result.aggregate_fields {
+          Some(fields) =>
+            for key, value in fields {
+              let item : Map[String, Json] = {}
+              item["alias_"] = Json::string(key)
+              item["value"] = @firestore.value_to_json(value)
+              results.push(Json::object(item))
+            }
+          None => ()
+        }
+      None => ()
+    }
+    match response.explain_metrics {
+      Some(m) => metrics = Some(m)
+      None => ()
+    }
+  }
+  if explain {
+    let out : Map[String, Json] = {}
+    out["results"] = Json::array(results)
+    out["metrics"] = explain_metrics_to_json(
+      metrics.unwrap_or(@gfs.ExplainMetrics::{
+        plan_summary: None,
+        execution_stats: None,
+      }),
+    )
+    println(Json::object(out).stringify(indent=2))
+  } else {
+    println(Json::array(results).stringify(indent=2))
+  }
   0
 }
 
@@ -263,7 +558,7 @@ async fn cmd_create(
 ) -> Int {
   if args.length() < 1 {
     raise CliError(
-      "usage: firestire create <collection_path> [--doc-id ID] --fields JSON",
+      "usage: firestore create <collection_path> [--doc-id ID] --fields JSON",
     )
   }
   let cp = args[0]
@@ -300,7 +595,7 @@ async fn cmd_delete(
   args : Array[String],
 ) -> Int {
   if args.length() < 1 {
-    raise CliError("usage: firestire delete <collection_path>/<doc_id>")
+    raise CliError("usage: firestore delete <collection_path>/<doc_id>")
   }
   let (cp, doc_id) = match @firestore.split_doc_path(args[0]) {
     Ok(v) => v
@@ -343,6 +638,184 @@ fn get_flag(args : Array[String], flag : String) -> String? {
     i += 1
   }
   None
+}
+
+///|
+fn get_flags(args : Array[String], flag : String) -> Array[String] {
+  let values : Array[String] = []
+  let mut i = 0
+  while i < args.length() {
+    if args[i] == flag && i + 1 < args.length() {
+      values.push(args[i + 1])
+    }
+    i += 1
+  }
+  values
+}
+
+///|
+fn has_flag(args : Array[String], flag : String) -> Bool {
+  let mut i = 0
+  while i < args.length() {
+    if args[i] == flag {
+      return true
+    }
+    i += 1
+  }
+  false
+}
+
+///|
+fn parse_where_clause(where_arg : String) -> (String, String) raise CliError {
+  match split_once(where_arg, "=") {
+    Some(v) => v
+    None => raise CliError("--where must be FIELD=VALUE, got \"\{where_arg}\"")
+  }
+}
+
+///|
+fn parse_and_clause(
+  and_arg : String,
+) -> (String, String, String) raise CliError {
+  let (field_eq_value, op) = match split_once(and_arg, ":") {
+    Some(v) => v
+    None => raise CliError("--and must be FIELD=VALUE:OP, got \"\{and_arg}\"")
+  }
+  let (field, value) = match split_once(field_eq_value, "=") {
+    Some(v) => v
+    None =>
+      raise CliError(
+        "--and must contain FIELD=VALUE before :OP, got \"\{and_arg}\"",
+      )
+  }
+  (field, value, op)
+}
+
+///|
+fn make_field_filter(
+  field : String,
+  op : String,
+  value : String,
+) -> @gfs.Filter {
+  @gfs.Filter::{
+    composite_filter: None,
+    field_filter: Some(@gfs.FieldFilter::{
+      field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
+      op: Some(op),
+      value: Some(@firestore.sv(value)),
+    }),
+    unary_filter: None,
+  }
+}
+
+///|
+fn combine_filters_and(filters : Array[@gfs.Filter]) -> @gfs.Filter? {
+  if filters.is_empty() {
+    None
+  } else if filters.length() == 1 {
+    Some(filters[0])
+  } else {
+    Some(@gfs.Filter::{
+      composite_filter: Some(@gfs.CompositeFilter::{
+        filters: Some(filters),
+        op: Some("AND"),
+      }),
+      field_filter: None,
+      unary_filter: None,
+    })
+  }
+}
+
+///|
+fn parse_order(order_arg : String) -> @gfs.Order raise CliError {
+  let (field, direction) = match split_once(order_arg, ":") {
+    Some((f, dir)) =>
+      (
+        f,
+        match dir {
+          "asc" => "ASCENDING"
+          "desc" => "DESCENDING"
+          _ =>
+            raise CliError(
+              "--order direction must be asc or desc, got \"\{dir}\"",
+            )
+        },
+      )
+    None => (order_arg, "ASCENDING")
+  }
+  @gfs.Order::{
+    field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
+    direction: Some(direction),
+  }
+}
+
+///|
+fn parse_agg_field_alias(
+  spec : String,
+  kind : String,
+) -> (String, String) raise CliError {
+  match split_once(spec, ":") {
+    Some((field, alias_name)) => {
+      if field == "" {
+        raise CliError("--\{kind} requires FIELD[:ALIAS], got \"\{spec}\"")
+      }
+      if alias_name == "" {
+        raise CliError("--\{kind} alias must not be empty in \"\{spec}\"")
+      }
+      (field, alias_name)
+    }
+    None => {
+      if spec == "" {
+        raise CliError("--\{kind} requires FIELD[:ALIAS]")
+      }
+      (spec, default_agg_alias(kind, spec))
+    }
+  }
+}
+
+///|
+fn default_agg_alias(kind : String, field : String) -> String {
+  kind + "_" + sanitize_alias_part(field)
+}
+
+///|
+fn sanitize_alias_part(s : String) -> String {
+  let out = StringBuilder::new()
+  let mut last_was_sep = false
+  for c in s {
+    if c is ('0'..='9' | 'a'..='z' | 'A'..='Z' | '_') {
+      out.write_char(c)
+      last_was_sep = false
+    } else if !last_was_sep {
+      out.write_char('_')
+      last_was_sep = true
+    }
+  }
+  let sanitized = out.to_string()
+  if sanitized == "" {
+    "value"
+  } else {
+    sanitized
+  }
+}
+
+///|
+fn is_flag_token(s : String) -> Bool {
+  s.has_prefix("--")
+}
+
+///|
+fn explain_metrics_to_json(metrics : @gfs.ExplainMetrics) -> Json {
+  let obj : Map[String, Json] = {}
+  obj["planSummary"] = match metrics.plan_summary {
+    Some(v) => v.to_json()
+    None => Json::null()
+  }
+  obj["executionStats"] = match metrics.execution_stats {
+    Some(v) => v.to_json()
+    None => Json::null()
+  }
+  Json::object(obj)
 }
 
 ///|
