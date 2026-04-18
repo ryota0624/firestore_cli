@@ -7,6 +7,7 @@ package "ryota0624/firestire_cli/cmd/cli"
 type CliError
 
 // Types and methods
+type GlobalOpts
 
 // Type aliases
 

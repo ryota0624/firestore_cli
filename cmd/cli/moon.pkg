@@ -1,9 +1,11 @@
 import {
   "ryota0624/firestire_cli/firestore" @firestore,
+  "ryota0624/googleapis/generated/firestore" @gfs,
   "ryota0624/googleapis/http" @ghttp,
   "mizchi/x/sys" @sys,
   "moonbitlang/async",
   "moonbitlang/core/string" @string,
+  "moonbitlang/core/json" @json,
 }
 
 options(

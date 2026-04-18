@@ -15,6 +15,8 @@ pub fn build_parent(String, String, String) -> String
 
 pub async fn build_production_client() -> Result[@core.GoogleClient, String]
 
+pub async fn build_production_client_from_service_account(String) -> Result[@core.GoogleClient, String]
+
 pub fn bv(Bool) -> @ryota0624/googleapis/generated/firestore.Value
 
 pub fn document_to_json(@ryota0624/googleapis/generated/firestore.Document) -> Json
@@ -23,9 +25,13 @@ pub fn dv(Double) -> @ryota0624/googleapis/generated/firestore.Value
 
 pub fn iv(Int64) -> @ryota0624/googleapis/generated/firestore.Value
 
+pub fn json_to_value(Json) -> Result[@ryota0624/googleapis/generated/firestore.Value, String]
+
 pub fn nullv() -> @ryota0624/googleapis/generated/firestore.Value
 
 pub fn split_collection_path(String) -> Result[(String, String), String]
+
+pub fn split_doc_path(String) -> Result[(String, String), String]
 
 pub fn sv(String) -> @ryota0624/googleapis/generated/firestore.Value
 
@@ -34,6 +40,11 @@ pub fn value_to_json(@ryota0624/googleapis/generated/firestore.Value) -> Json
 // Errors
 
 // Types and methods
+pub enum BatchGetResult {
+  Found(@ryota0624/googleapis/generated/firestore.Document)
+  Missing(String)
+}
+
 pub struct Config {
   project : String
   database : String
@@ -46,6 +57,7 @@ pub struct FirestoreClient {
   project : String
   database : String
 }
+pub async fn FirestoreClient::batch_get_documents(Self, Array[String]) -> Array[BatchGetResult] raise @http.HttpError
 pub async fn FirestoreClient::create_document(Self, String, doc_id? : String, Map[String, @ryota0624/googleapis/generated/firestore.Value]) -> @ryota0624/googleapis/generated/firestore.Document raise @http.HttpError
 pub async fn FirestoreClient::delete_document(Self, String, String) -> Unit raise @http.HttpError
 pub async fn FirestoreClient::get_document(Self, String, String) -> @ryota0624/googleapis/generated/firestore.Document raise @http.HttpError

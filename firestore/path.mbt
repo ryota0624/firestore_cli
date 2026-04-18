@@ -52,3 +52,36 @@ pub fn build_document_name(
 ) -> String {
   build_parent(project, database, collection_path) + "/" + doc_id
 }
+
+///|
+/// "collection_path/doc_id" を (collection_path, doc_id) に分解する。
+/// 最後のセグメントを doc_id、残りを collection_path とする。
+/// 偶数セグメント（= doc_id までの path としてちょうど "collection/doc" 形式でない）
+/// の場合や単一セグメントの場合は Err を返す。
+pub fn split_doc_path(path : String) -> Result[(String, String), String] {
+  let segs : Array[String] = path
+    .split("/")
+    .map(fn(v) { v.to_string() })
+    .collect()
+  if segs.length() < 2 {
+    return Err("document path must contain at least 2 segments: \"\{path}\"")
+  }
+  for segment in segs {
+    if segment == "" {
+      return Err("document path contains empty segment: \"\{path}\"")
+    }
+  }
+  let last = segs[segs.length() - 1]
+  let head : Array[String] = []
+  let mut i = 0
+  while i < segs.length() - 1 {
+    head.push(segs[i])
+    i += 1
+  }
+  if head.length() % 2 == 0 {
+    return Err(
+      "collection path must have an odd segment count (got \{head.length()}): \"\{path}\"",
+    )
+  }
+  Ok((head.join("/"), last))
+}

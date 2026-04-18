@@ -4,5 +4,6 @@ import {
   "ryota0624/googleapis/generated/firestore" @gfs,
   "ryota0624/googleauth/lib" @googleauth,
   "mizchi/x/sys" @sys,
+  "mizchi/x/fs" @fs,
   "moonbitlang/core/json",
 }
