@@ -9,7 +9,15 @@
 pub async fn build_production_client() -> Result[@gcore.GoogleClient, String] {
   let auth_client = match @googleauth.auto_detect_and_authenticate() {
     Ok(c) => c
-    Err(e) => return Err("failed to detect credentials: \{describe_auth_err(e)}")
+    Err(e) => {
+      let base = "failed to detect credentials: \{describe_auth_err(e)}"
+      return Err(
+        match adc_login_hint(e) {
+          Some(h) => "\{base}\n\{h}"
+          None => base
+        },
+      )
+    }
   }
   // Pre-flight: fail fast if the token refresh path is broken.
   match fetch_token(auth_client) {
@@ -43,13 +51,14 @@ pub async fn build_production_client_from_service_account(
   let gcc = @googleauth.from_service_account_credentials(creds)
   match @googleauth.get_access_token_with_scopes(gcc, [CLOUD_PLATFORM_SCOPE]) {
     Ok(_) => ()
-    Err(e) =>
-      return Err("failed to get access token: \{describe_cred_err(e)}")
+    Err(e) => return Err("failed to get access token: \{describe_cred_err(e)}")
   }
   let get_token : async () -> String = fn() -> String {
-    match @googleauth.get_access_token_with_scopes(gcc, [CLOUD_PLATFORM_SCOPE]) {
+    match
+      @googleauth.get_access_token_with_scopes(gcc, [CLOUD_PLATFORM_SCOPE]) {
       Ok(t) => t
-      Err(e) => abort("service account token refresh failed: \{describe_cred_err(e)}")
+      Err(e) =>
+        abort("service account token refresh failed: \{describe_cred_err(e)}")
     }
   }
   Ok(@gcore.GoogleClient::new(get_token))
@@ -57,6 +66,11 @@ pub async fn build_production_client_from_service_account(
 
 ///|
 const CLOUD_PLATFORM_SCOPE : String = "https://www.googleapis.com/auth/cloud-platform"
+
+///|
+const ADC_LOGIN_HINT : String =
+  #|hint: Application Default Credentials が無効または未設定です。以下を実行してから再試行してください:
+  #|  gcloud auth application-default login
 
 ///|
 async fn fetch_token(
@@ -67,13 +81,13 @@ async fn fetch_token(
       match c.credentials {
         Some(sa) => {
           let gcc = @googleauth.from_service_account_credentials(sa)
-          match @googleauth.get_access_token_with_scopes(
-            gcc,
-            [CLOUD_PLATFORM_SCOPE],
-          ) {
+          match
+            @googleauth.get_access_token_with_scopes(gcc, [CLOUD_PLATFORM_SCOPE]) {
             Ok(t) => Ok(t)
             Err(e) =>
-              Err("failed to get service account token: \{describe_cred_err(e)}")
+              Err(
+                "failed to get service account token: \{describe_cred_err(e)}",
+              )
           }
         }
         None => Err("GoogleAuthClient missing service_account credentials")
@@ -81,8 +95,26 @@ async fn fetch_token(
     _ =>
       match @googleauth.get_access_token(c) {
         Ok(t) => Ok(t)
-        Err(e) => Err("failed to get access token: \{describe_auth_err(e)}")
+        Err(e) => {
+          let base = "failed to get access token: \{describe_auth_err(e)}"
+          Err(
+            match adc_login_hint(e) {
+              Some(h) => "\{base}\n\{h}"
+              None => base
+            },
+          )
+        }
       }
+  }
+}
+
+///|
+/// gcloud auth application-default login で直るエラーのみ Some(hint) を返す。
+fn adc_login_hint(e : @googleauth.AuthenticationError) -> String? {
+  match e {
+    NoValidCredentials => Some(ADC_LOGIN_HINT)
+    InvalidCredentials(_) => Some(ADC_LOGIN_HINT)
+    MetadataServerError(_) => None
   }
 }
 
