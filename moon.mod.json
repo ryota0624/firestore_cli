@@ -8,7 +8,7 @@
   "description": "",
   "preferred-target": "native",
   "deps": {
-    "ryota0624/googleapis": "0.4.0",
+    "ryota0624/googleapis": "0.4.1",
     "ryota0624/googleauth": "0.2.0",
     "ryota0624/moonbit_test_containers": "0.0.5",
     "moonbitlang/async": "0.16.6",
