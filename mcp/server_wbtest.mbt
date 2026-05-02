@@ -492,3 +492,101 @@ async test "delete_document dispatches to writer" {
   guard c0.get("text") is Some(Json::String(text)) else { fail("no text") }
   assert_true(text.contains("notes/a"))
 }
+
+///|
+async test "query_collection null value == builds IS_NULL (no error)" {
+  let r = MockReader::default()
+  let w = MockWriter::default()
+  let req = JsonRpcRequest::{
+    jsonrpc: "2.0",
+    id: Some(Json::number(20.0)),
+    method_: "tools/call",
+    params: Some(
+      Json::object({
+        "name": Json::string("firestore_query_collection"),
+        "arguments": Json::object({
+          "collection_path": Json::string("items"),
+          "field": Json::string("deleted_at"),
+          "op": Json::string("=="),
+          "value": Json::null(),
+        }),
+      }),
+    ),
+  }
+  let resp = match handle_request(req, r, w) {
+    Some(x) => x
+    None => fail("unexpected None")
+  }
+  guard resp.error is None else { fail("expected no rpc error") }
+  guard resp.result is Some(res) else { fail("expected result") }
+  guard res is Object(m) else { fail("result not object") }
+  assert_eq(m.get("isError"), Some(Json::boolean(false)))
+}
+
+///|
+async test "query_collection null value != builds IS_NOT_NULL (no error)" {
+  let r = MockReader::default()
+  let w = MockWriter::default()
+  let req = JsonRpcRequest::{
+    jsonrpc: "2.0",
+    id: Some(Json::number(21.0)),
+    method_: "tools/call",
+    params: Some(
+      Json::object({
+        "name": Json::string("firestore_query_collection"),
+        "arguments": Json::object({
+          "collection_path": Json::string("items"),
+          "field": Json::string("deleted_at"),
+          "op": Json::string("!="),
+          "value": Json::null(),
+        }),
+      }),
+    ),
+  }
+  let resp = match handle_request(req, r, w) {
+    Some(x) => x
+    None => fail("unexpected None")
+  }
+  guard resp.error is None else { fail("expected no rpc error") }
+  guard resp.result is Some(res) else { fail("expected result") }
+  guard res is Object(m) else { fail("result not object") }
+  assert_eq(m.get("isError"), Some(Json::boolean(false)))
+}
+
+///|
+async test "aggregate null value where builds IS_NULL (no error)" {
+  let r = MockReader::default()
+  let w = MockWriter::default()
+  let req = JsonRpcRequest::{
+    jsonrpc: "2.0",
+    id: Some(Json::number(22.0)),
+    method_: "tools/call",
+    params: Some(
+      Json::object({
+        "name": Json::string("firestore_aggregate"),
+        "arguments": Json::object({
+          "collection_path": Json::string("items"),
+          "aggregators": Json::array([
+            Json::object({
+              "alias": Json::string("total"),
+              "type": Json::string("count"),
+            }),
+          ]),
+          "where": Json::object({
+            "field": Json::string("deleted_at"),
+            "op": Json::string("=="),
+            "value": Json::null(),
+          }),
+        }),
+      }),
+    ),
+  }
+  let resp = match handle_request(req, r, w) {
+    Some(x) => x
+    None => fail("unexpected None")
+  }
+  guard resp.error is None else { fail("expected no rpc error") }
+  guard resp.result is Some(res) else { fail("expected result") }
+  guard res is Object(m) else { fail("result not object") }
+  assert_eq(m.get("isError"), Some(Json::boolean(false)))
+}

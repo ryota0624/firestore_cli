@@ -416,15 +416,25 @@ fn filter_from_json(j : Json) -> @gfs.Filter raise @ghttp.HttpError {
         Some(Json::String(_)) => true
         _ => false
       }
-      let has_val = match m.get("value") {
-        None | Some(Json::Null) => false
-        Some(_) => true
-      }
-      if has_field && has_op && has_val {
-        @gfs.Filter::{
-          composite_filter: None,
-          field_filter: Some(field_filter_from_json(j)),
-          unary_filter: None,
+      let value_present = m.contains("value")
+      if has_field && has_op && value_present {
+        let fp = match m.get("field") {
+          Some(f) => field_path_from_field_json(f)
+          None =>
+            raise @ghttp.HttpError::network_message("filter field required")
+        }
+        let op_str = match m.get("op") {
+          Some(Json::String(s)) => s
+          _ => raise @ghttp.HttpError::network_message("filter op required")
+        }
+        match m.get("value") {
+          Some(Json::Null) => unary_filter_for_null(fp, op_str)
+          _ =>
+            @gfs.Filter::{
+              composite_filter: None,
+              field_filter: Some(field_filter_from_json(j)),
+              unary_filter: None,
+            }
         }
       } else {
         raise @ghttp.HttpError::network_message(
@@ -598,6 +608,33 @@ fn field_filter_from_shorthand(
 }
 
 ///|
+fn op_to_unary_is_null_op(op : String) -> String raise @ghttp.HttpError {
+  match op {
+    "==" => "IS_NULL"
+    "!=" => "IS_NOT_NULL"
+    _ =>
+      raise @ghttp.HttpError::network_message(
+        "null value only supports == and != operators (maps to IS_NULL / IS_NOT_NULL)",
+      )
+  }
+}
+
+///|
+fn unary_filter_for_null(
+  field : String,
+  op : String,
+) -> @gfs.Filter raise @ghttp.HttpError {
+  @gfs.Filter::{
+    composite_filter: None,
+    field_filter: None,
+    unary_filter: Some(@gfs.UnaryFilter::{
+      op: Some(op_to_unary_is_null_op(op)),
+      field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
+    }),
+  }
+}
+
+///|
 fn aggregation_results_to_json(
   results : Array[@firestore.AggregationResult],
 ) -> Json {
@@ -714,14 +751,17 @@ fn aggregate_where_clause(j : Json) -> @gfs.Filter raise @ghttp.HttpError {
   } else {
     let field = map_require_str(m, "field")
     let op = map_require_str(m, "op")
-    let vj = match m.get("value") {
-      Some(v) => v
-      None => raise @ghttp.HttpError::network_message("where.value required")
+    if !m.contains("value") {
+      raise @ghttp.HttpError::network_message("where.value required")
     }
-    @gfs.Filter::{
-      composite_filter: None,
-      field_filter: Some(field_filter_from_shorthand(field, op, vj)),
-      unary_filter: None,
+    match m.get("value") {
+      None | Some(Json::Null) => unary_filter_for_null(field, op)
+      Some(vj) =>
+        @gfs.Filter::{
+          composite_filter: None,
+          field_filter: Some(field_filter_from_shorthand(field, op, vj)),
+          unary_filter: None,
+        }
     }
   }
 }
@@ -881,16 +921,13 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
     Some(Json::String(s)) => Some(s)
     _ => None
   }
-  let has_value = match args.get("value") {
-    None | Some(Json::Null) => false
-    Some(_) => true
-  }
-  let legacy_triple = match (field_opt, op_opt, has_value) {
+  let value_present = args.contains("value")
+  let legacy_triple = match (field_opt, op_opt, value_present) {
     (Some(_), Some(_), true) => true
     _ => false
   }
   if !legacy_triple {
-    if field_opt is Some(_) || op_opt is Some(_) || has_value {
+    if field_opt is Some(_) || op_opt is Some(_) || value_present {
       raise @ghttp.HttpError::network_message(
         "field, op, and value must all be set together (unless using filter)",
       )
@@ -898,13 +935,28 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
   }
   let has_ext = has_query_extensions(args)
   if legacy_triple && !has_ext {
-    let v = json_to_value(
-      match args.get("value") {
-        Some(val) => val
-        None =>
-          raise @ghttp.HttpError::network_message("missing value for query")
-      },
-    )
+    let val_j = match args.get("value") {
+      Some(val) => val
+      None => raise @ghttp.HttpError::network_message("missing value for query")
+    }
+    match val_j {
+      Json::Null => {
+        let flt = unary_filter_for_null(field_opt.unwrap(), op_opt.unwrap())
+        let lim = map_opt_int_strict(args, "limit")
+        let spec = @firestore.QuerySpec::{
+          filter: Some(flt),
+          order_by: None,
+          start_at: None,
+          end_at: None,
+          limit: lim,
+          offset: None,
+        }
+        let docs = self.client.query(cp, spec)
+        return query_results_to_json(docs)
+      }
+      _ => ()
+    }
+    let v = json_to_value(val_j)
     let lim = map_opt_int_strict(args, "limit")
     let docs = match lim {
       Some(lim) =>
@@ -921,20 +973,26 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
     return query_results_to_json(docs)
   }
   let flt = if legacy_triple && has_ext {
-    Some(@gfs.Filter::{
-      composite_filter: None,
-      field_filter: Some(
-        field_filter_from_shorthand(
-          field_opt.unwrap(),
-          op_opt.unwrap(),
-          match args.get("value") {
-            Some(val) => val
-            None => raise @ghttp.HttpError::network_message("missing value")
-          },
-        ),
-      ),
-      unary_filter: None,
-    })
+    let val_j = match args.get("value") {
+      Some(val) => val
+      None => raise @ghttp.HttpError::network_message("missing value")
+    }
+    match val_j {
+      Json::Null =>
+        Some(unary_filter_for_null(field_opt.unwrap(), op_opt.unwrap()))
+      _ =>
+        Some(@gfs.Filter::{
+          composite_filter: None,
+          field_filter: Some(
+            field_filter_from_shorthand(
+              field_opt.unwrap(),
+              op_opt.unwrap(),
+              val_j,
+            ),
+          ),
+          unary_filter: None,
+        })
+    }
   } else {
     None
   }
