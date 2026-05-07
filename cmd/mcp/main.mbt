@@ -1048,6 +1048,16 @@ pub impl @mcp_lib.FirestoreWriter for Reader with delete_document(
 }
 
 ///|
+pub impl @mcp_lib.FirestoreWriter for Reader with batch_delete_documents(
+  self,
+  doc_paths,
+) {
+  let prefix = "projects/\{self.client.project}/databases/\{self.client.database}/documents/"
+  let full_names = doc_paths.map(fn(p) { prefix + p })
+  self.client.batch_delete_documents(full_names)
+}
+
+///|
 async fn run_with_client(
   client : @firestore.FirestoreClient,
   read_only : Bool,

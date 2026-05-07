@@ -123,18 +123,19 @@ pub impl FirestoreReader for MockReader with batch_get(self, doc_paths) {
 struct MockWriter {
   created : Array[(String, String?, Map[String, Json])]
   deleted : Array[(String, String)]
+  batch_deleted : Array[String]
   // When true, all calls abort (used to assert writer is not reached).
   abort_on_call : Bool
 }
 
 ///|
 fn MockWriter::default() -> MockWriter {
-  MockWriter::{ created: [], deleted: [], abort_on_call: false }
+  MockWriter::{ created: [], deleted: [], batch_deleted: [], abort_on_call: false }
 }
 
 ///|
 fn MockWriter::aborting() -> MockWriter {
-  MockWriter::{ created: [], deleted: [], abort_on_call: true }
+  MockWriter::{ created: [], deleted: [], batch_deleted: [], abort_on_call: true }
 }
 
 ///|
@@ -168,6 +169,19 @@ pub impl FirestoreWriter for MockWriter with delete_document(
 }
 
 ///|
+pub impl FirestoreWriter for MockWriter with batch_delete_documents(
+  self,
+  doc_paths,
+) {
+  if self.abort_on_call {
+    abort("MockWriter::batch_delete_documents should not be called")
+  }
+  for path in doc_paths {
+    self.batch_deleted.push(path)
+  }
+}
+
+///|
 async test "initialize returns protocolVersion" {
   let req = JsonRpcRequest::{
     jsonrpc: "2.0",
@@ -187,7 +201,7 @@ async test "initialize returns protocolVersion" {
 }
 
 ///|
-async test "tools/list returns 10 tools (read + write)" {
+async test "tools/list returns 11 tools (read + write)" {
   let req = JsonRpcRequest::{
     jsonrpc: "2.0",
     id: Some(Json::number(2.0)),
@@ -203,7 +217,7 @@ async test "tools/list returns 10 tools (read + write)" {
   guard resp.result is Some(res) else { fail("unexpected") }
   guard res is Object(m) else { fail("unexpected") }
   guard m.get("tools") is Some(Json::Array(tools)) else { fail("unexpected") }
-  assert_eq(tools.length(), 10)
+  assert_eq(tools.length(), 11)
 }
 
 ///|
