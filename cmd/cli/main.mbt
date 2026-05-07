@@ -10,7 +10,10 @@ const USAGE =
   #|  aggregate <collection_path> [--count [ALIAS]] [--sum FIELD[:ALIAS]] [--avg FIELD[:ALIAS]]
   #|                              [--where FIELD=VALUE] [--op OP] [--explain] [--analyze]
   #|  create <collection_path> [--doc-id ID] --fields JSON
-  #|  delete <collection_path>/<doc_id>
+  #|  delete <collection_path>/<doc_id> [<collection_path>/<doc_id> ...]
+  #|
+  #|query --ids-only: outputs one relative path per line (e.g. Col/docId), suitable for xargs delete
+  #|query --op supports: EQUAL, NOT_EQUAL, LESS_THAN, GREATER_THAN, etc., IS_NULL, IS_NAN
   #|
   #|Global options:
   #|  --project ID             override GCP_PROJECT
@@ -328,6 +331,7 @@ async fn cmd_query(
     )
     println(Json::object(out).stringify(indent=2))
   } else {
+    let ids_only = has_flag(args, "--ids-only")
     let request = @gfs.RunQueryRequest::{
       parent: None,
       structured_query: Some(query),
@@ -346,11 +350,26 @@ async fn cmd_query(
         None => ()
       }
     }
-    let arr : Array[Json] = docs
-      .iter()
-      .map(@firestore.document_to_json)
-      .collect()
-    println(Json::array(arr).stringify(indent=2))
+    if ids_only {
+      let doc_prefix = "projects/\{fc.project}/databases/\{fc.database}/documents/"
+      for doc in docs {
+        match doc.name {
+          Some(name) =>
+            if name.has_prefix(doc_prefix) {
+              println(name[doc_prefix.length():].to_string())
+            } else {
+              println(name)
+            }
+          None => ()
+        }
+      }
+    } else {
+      let arr : Array[Json] = docs
+        .iter()
+        .map(@firestore.document_to_json)
+        .collect()
+      println(Json::array(arr).stringify(indent=2))
+    }
   }
   0
 }
@@ -595,17 +614,23 @@ async fn cmd_delete(
   args : Array[String],
 ) -> Int {
   if args.length() < 1 {
-    raise CliError("usage: firestore delete <collection_path>/<doc_id>")
+    raise CliError(
+      "usage: firestore delete <collection_path>/<doc_id> [<collection_path>/<doc_id> ...]",
+    )
   }
-  let (cp, doc_id) = match @firestore.split_doc_path(args[0]) {
-    Ok(v) => v
-    Err(e) => raise CliError(e)
+  let doc_prefix = "projects/\{fc.project}/databases/\{fc.database}/documents/"
+  let full_names : Array[String] = []
+  for arg in args {
+    match @firestore.split_doc_path(arg) {
+      Ok(_) => full_names.push(doc_prefix + arg)
+      Err(e) => raise CliError(e)
+    }
   }
-  fc.delete_document(cp, doc_id) catch {
+  fc.batch_delete_documents(full_names) catch {
     e => raise CliError("firestore: \{format_http_error(e)}")
   }
   let out : Map[String, Json] = {}
-  out["deleted"] = Json::string(args[0])
+  out["deleted"] = Json::array(args.map(Json::string))
   println(Json::object(out).stringify(indent=2))
   0
 }
@@ -697,14 +722,31 @@ fn make_field_filter(
   op : String,
   value : String,
 ) -> @gfs.Filter {
-  @gfs.Filter::{
-    composite_filter: None,
-    field_filter: Some(@gfs.FieldFilter::{
-      field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
-      op: Some(op),
-      value: Some(@firestore.sv(value)),
-    }),
-    unary_filter: None,
+  make_filter(field, op, value)
+}
+
+///|
+/// IS_NULL / IS_NAN は unary_filter で処理し、それ以外は field_filter を使う。
+fn make_filter(field : String, op : String, value : String) -> @gfs.Filter {
+  if op == "IS_NULL" || op == "IS_NAN" {
+    @gfs.Filter::{
+      composite_filter: None,
+      field_filter: None,
+      unary_filter: Some(@gfs.UnaryFilter::{
+        op: Some(op),
+        field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
+      }),
+    }
+  } else {
+    @gfs.Filter::{
+      composite_filter: None,
+      field_filter: Some(@gfs.FieldFilter::{
+        field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
+        op: Some(op),
+        value: Some(@firestore.sv(value)),
+      }),
+      unary_filter: None,
+    }
   }
 }
 
