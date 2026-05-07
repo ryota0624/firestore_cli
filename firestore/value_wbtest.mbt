@@ -86,9 +86,7 @@ test "json_to_value: array rejected" {
 
 ///|
 test "json_to_value: object rejected" {
-  assert_true(
-    json_to_value(Json::object({ "k": Json::string("v") })) is Err(_),
-  )
+  assert_true(json_to_value(Json::object({ "k": Json::string("v") })) is Err(_))
 }
 
 ///|

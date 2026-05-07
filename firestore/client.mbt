@@ -408,6 +408,53 @@ pub async fn FirestoreClient::delete_document(
 }
 
 ///|
+/// クエリ結果の `doc.name`（完全リソース名）をそのまま受け取って削除する。
+pub async fn FirestoreClient::delete_document_by_name(
+  self : FirestoreClient,
+  full_doc_name : String,
+) -> Unit raise @ghttp.HttpError {
+  let _ = self.service.delete_document(full_doc_name)
+}
+
+///|
+/// 複数ドキュメントを batchWrite で一括削除する。500件ずつ分割して送信する。
+pub async fn FirestoreClient::batch_delete_documents(
+  self : FirestoreClient,
+  full_doc_names : Array[String],
+) -> Unit raise @ghttp.HttpError {
+  let database = "projects/\{self.project}/databases/\{self.database}"
+  let chunk_size = 500
+  let mut i = 0
+  while i < full_doc_names.length() {
+    let end = if i + chunk_size < full_doc_names.length() {
+      i + chunk_size
+    } else {
+      full_doc_names.length()
+    }
+    let writes : Array[@gfs.Write] = []
+    let mut j = i
+    while j < end {
+      writes.push(@gfs.Write::{
+        update: None,
+        delete: Some(full_doc_names[j]),
+        transform: None,
+        update_mask: None,
+        update_transforms: None,
+        current_document: None,
+      })
+      j += 1
+    }
+    let request = @gfs.BatchWriteRequest::{
+      database: None,
+      writes: Some(writes),
+      labels: None,
+    }
+    let _ = self.service.batch_write(database, request)
+    i = end
+  }
+}
+
+///|
 /// batch_get_documents の結果要素。
 /// Found は見つかった Document、Missing は見つからなかった full resource name。
 pub(all) enum BatchGetResult {
