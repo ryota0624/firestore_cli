@@ -45,6 +45,7 @@ pub(open) trait FirestoreWriter {
     fields : Map[String, Json],
   ) -> Json
   async delete_document(Self, collection_path : String, doc_id : String) -> Unit
+  async batch_delete_documents(Self, doc_paths : Array[String]) -> Unit
 }
 
 ///|
@@ -250,6 +251,20 @@ fn write_tool_schemas() -> Array[Tool] {
         ]),
       }),
     },
+    Tool::{
+      name: "firestore_batch_delete",
+      description: "Delete multiple Firestore documents in bulk using batchWrite (up to 500 per request). doc_paths is an array of relative paths in the form \"collection/docId\" (e.g. \"users/alice\").",
+      input_schema: Json::object({
+        "type": Json::string("object"),
+        "properties": Json::object({
+          "doc_paths": Json::object({
+            "type": Json::string("array"),
+            "items": Json::object({ "type": Json::string("string") }),
+          }),
+        }),
+        "required": Json::array([Json::string("doc_paths")]),
+      }),
+    },
   ]
 }
 
@@ -365,7 +380,9 @@ fn get_object(
 
 ///|
 fn is_write_tool(name : String) -> Bool {
-  name == "firestore_create_document" || name == "firestore_delete_document"
+  name == "firestore_create_document" ||
+  name == "firestore_delete_document" ||
+  name == "firestore_batch_delete"
 }
 
 ///|
@@ -601,6 +618,20 @@ async fn[R : FirestoreReader, W : FirestoreWriter] dispatch_tools_call(
             Text("{\"deleted\": \"\{collection_path}/\{doc_id}\"}"),
           ),
         )
+      } catch {
+        err => Ok(wrap_tool_result(Error(err.to_string())))
+      }
+    }
+    "firestore_batch_delete" => {
+      let doc_paths = match get_string_array(arg_map, "doc_paths") {
+        Ok(a) => a
+        Err(e) => return Err((-32602, e))
+      }
+      try {
+        writer.batch_delete_documents(doc_paths)
+        let out : Map[String, Json] = {}
+        out["deleted"] = Json::number(doc_paths.length().to_double())
+        Ok(wrap_tool_result(Text(Json::object(out).stringify())))
       } catch {
         err => Ok(wrap_tool_result(Error(err.to_string())))
       }
