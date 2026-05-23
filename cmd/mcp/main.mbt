@@ -835,7 +835,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with get_document(
   doc_id : String,
 ) {
   let doc = map_http_error(
-    async fn() { self.client.get_document(collection_path, doc_id) },
+    async fn() raise @ghttp.HttpError {
+      self.client.get_document(collection_path, doc_id)
+    },
   )
   @firestore.document_to_json(doc)
 }
@@ -848,7 +850,7 @@ pub impl @mcp_lib.FirestoreReader for Reader with list_documents(
   page_token : String?,
 ) {
   let resp = map_http_error(
-    async fn() { match (page_size, page_token) {
+    async fn() raise @ghttp.HttpError { match (page_size, page_token) {
       (Some(ps), Some(pt)) =>
         self.client.list_documents(collection_path, page_size=ps, page_token=pt)
       (Some(ps), None) =>
@@ -869,7 +871,7 @@ pub impl @mcp_lib.FirestoreReader for Reader with list_collection_ids(
   page_token : String?,
 ) {
   let (ids, next_tok) = map_http_error(
-    async fn() { match (parent_doc_path, page_size, page_token) {
+    async fn() raise @ghttp.HttpError { match (parent_doc_path, page_size, page_token) {
       (Some(p), Some(ps), Some(pt)) =>
         self.client.list_collection_ids(
           parent_doc_path=p,
@@ -910,7 +912,7 @@ pub impl @mcp_lib.FirestoreReader for Reader with aggregate(
     Some(j) => Some(aggregate_where_clause(j))
   }
   let results = map_http_error(
-    async fn() { match wf {
+    async fn() raise @ghttp.HttpError { match wf {
       None => self.client.aggregate(collection_path, aggs)
       Some(f) => self.client.aggregate(collection_path, aggs, where_=f)
     } },
@@ -933,7 +935,7 @@ pub impl @mcp_lib.FirestoreReader for Reader with explain_aggregate(
   }
   let analyze_flag = analyze.unwrap_or(false)
   let res = map_http_error(
-    async fn() { match wf {
+    async fn() raise @ghttp.HttpError { match wf {
       None =>
         self.client.explain_aggregate(collection_path, aggs, analyze=analyze_flag)
       Some(f) =>
@@ -964,7 +966,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with explain_query(
   let qs = query_spec_from_map_args(spec_map, None)
   let analyze_flag = analyze.unwrap_or(false)
   let r = map_http_error(
-    async fn() { self.client.explain_query(collection_path, qs, analyze=analyze_flag) },
+    async fn() raise @ghttp.HttpError {
+      self.client.explain_query(collection_path, qs, analyze=analyze_flag)
+    },
   )
   Json::object({
     "documents": Json::array(r.documents.map(@firestore.document_to_json)),
@@ -984,7 +988,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
   }
   if has_filter_key {
     let spec = query_spec_from_map_args(args, None)
-    let docs = map_http_error(async fn() { self.client.query(cp, spec) })
+    let docs = map_http_error(
+      async fn() raise @ghttp.HttpError { self.client.query(cp, spec) },
+    )
     return query_results_to_json(docs)
   }
   let field_opt = match args.get("field") {
