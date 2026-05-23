@@ -43,7 +43,7 @@ fn looks_like_upstream_api_error(message : String) -> Bool {
 }
 
 ///|
-fn raise_mcp_tool_error_from_http(e : @ghttp.HttpError) -> Unit raise McpToolError {
+fn[T] raise_mcp_tool_error_from_http(e : @ghttp.HttpError) -> T raise McpToolError {
   match e {
     TimeoutError(m) => raise McpToolError::TimeoutError(m)
     InvalidUrl(m) => raise McpToolError::InvalidConfig(m)
@@ -57,7 +57,9 @@ fn raise_mcp_tool_error_from_http(e : @ghttp.HttpError) -> Unit raise McpToolErr
 }
 
 ///|
-fn map_http_error[T](f : () -> T) -> T raise McpToolError {
+async fn[T] map_http_error(
+  f : async () -> T raise @ghttp.HttpError,
+) -> T raise McpToolError {
   f() catch {
     e => raise_mcp_tool_error_from_http(e)
   }
@@ -832,7 +834,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with get_document(
   collection_path : String,
   doc_id : String,
 ) {
-  let doc = map_http_error(fn() { self.client.get_document(collection_path, doc_id) })
+  let doc = map_http_error(
+    async fn() { self.client.get_document(collection_path, doc_id) },
+  )
   @firestore.document_to_json(doc)
 }
 
@@ -843,15 +847,17 @@ pub impl @mcp_lib.FirestoreReader for Reader with list_documents(
   page_size : Int?,
   page_token : String?,
 ) {
-  let resp = map_http_error(fn() { match (page_size, page_token) {
-    (Some(ps), Some(pt)) =>
-      self.client.list_documents(collection_path, page_size=ps, page_token=pt)
-    (Some(ps), None) =>
-      self.client.list_documents(collection_path, page_size=ps)
-    (None, Some(pt)) =>
-      self.client.list_documents(collection_path, page_token=pt)
-    (None, None) => self.client.list_documents(collection_path)
-  } })
+  let resp = map_http_error(
+    async fn() { match (page_size, page_token) {
+      (Some(ps), Some(pt)) =>
+        self.client.list_documents(collection_path, page_size=ps, page_token=pt)
+      (Some(ps), None) =>
+        self.client.list_documents(collection_path, page_size=ps)
+      (None, Some(pt)) =>
+        self.client.list_documents(collection_path, page_token=pt)
+      (None, None) => self.client.list_documents(collection_path)
+    } },
+  )
   list_response_to_json(resp)
 }
 
@@ -862,24 +868,26 @@ pub impl @mcp_lib.FirestoreReader for Reader with list_collection_ids(
   page_size : Int?,
   page_token : String?,
 ) {
-  let (ids, next_tok) = map_http_error(fn() { match (parent_doc_path, page_size, page_token) {
-    (Some(p), Some(ps), Some(pt)) =>
-      self.client.list_collection_ids(
-        parent_doc_path=p,
-        page_size=ps,
-        page_token=pt,
-      )
-    (Some(p), Some(ps), None) =>
-      self.client.list_collection_ids(parent_doc_path=p, page_size=ps)
-    (Some(p), None, Some(pt)) =>
-      self.client.list_collection_ids(parent_doc_path=p, page_token=pt)
-    (Some(p), None, None) => self.client.list_collection_ids(parent_doc_path=p)
-    (None, Some(ps), Some(pt)) =>
-      self.client.list_collection_ids(page_size=ps, page_token=pt)
-    (None, Some(ps), None) => self.client.list_collection_ids(page_size=ps)
-    (None, None, Some(pt)) => self.client.list_collection_ids(page_token=pt)
-    (None, None, None) => self.client.list_collection_ids()
-  } })
+  let (ids, next_tok) = map_http_error(
+    async fn() { match (parent_doc_path, page_size, page_token) {
+      (Some(p), Some(ps), Some(pt)) =>
+        self.client.list_collection_ids(
+          parent_doc_path=p,
+          page_size=ps,
+          page_token=pt,
+        )
+      (Some(p), Some(ps), None) =>
+        self.client.list_collection_ids(parent_doc_path=p, page_size=ps)
+      (Some(p), None, Some(pt)) =>
+        self.client.list_collection_ids(parent_doc_path=p, page_token=pt)
+      (Some(p), None, None) => self.client.list_collection_ids(parent_doc_path=p)
+      (None, Some(ps), Some(pt)) =>
+        self.client.list_collection_ids(page_size=ps, page_token=pt)
+      (None, Some(ps), None) => self.client.list_collection_ids(page_size=ps)
+      (None, None, Some(pt)) => self.client.list_collection_ids(page_token=pt)
+      (None, None, None) => self.client.list_collection_ids()
+    } },
+  )
   Json::object({
     "collectionIds": Json::array(ids.map(fn(s) { Json::string(s) })),
     "nextPageToken": match next_tok {
@@ -901,10 +909,12 @@ pub impl @mcp_lib.FirestoreReader for Reader with aggregate(
     None => None
     Some(j) => Some(aggregate_where_clause(j))
   }
-  let results = map_http_error(fn() { match wf {
-    None => self.client.aggregate(collection_path, aggs)
-    Some(f) => self.client.aggregate(collection_path, aggs, where_=f)
-  } })
+  let results = map_http_error(
+    async fn() { match wf {
+      None => self.client.aggregate(collection_path, aggs)
+      Some(f) => self.client.aggregate(collection_path, aggs, where_=f)
+    } },
+  )
   aggregation_results_to_json(results)
 }
 
@@ -922,17 +932,19 @@ pub impl @mcp_lib.FirestoreReader for Reader with explain_aggregate(
     Some(j) => Some(aggregate_where_clause(j))
   }
   let analyze_flag = analyze.unwrap_or(false)
-  let res = map_http_error(fn() { match wf {
-    None =>
-      self.client.explain_aggregate(collection_path, aggs, analyze=analyze_flag)
-    Some(f) =>
-      self.client.explain_aggregate(
-        collection_path,
-        aggs,
-        where_=f,
-        analyze=analyze_flag,
-      )
-  } })
+  let res = map_http_error(
+    async fn() { match wf {
+      None =>
+        self.client.explain_aggregate(collection_path, aggs, analyze=analyze_flag)
+      Some(f) =>
+        self.client.explain_aggregate(
+          collection_path,
+          aggs,
+          where_=f,
+          analyze=analyze_flag,
+        )
+    } },
+  )
   Json::object({
     "results": aggregation_results_to_json(res.results),
     "metrics": explain_metrics_to_json(res.metrics),
@@ -951,9 +963,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with explain_query(
   }
   let qs = query_spec_from_map_args(spec_map, None)
   let analyze_flag = analyze.unwrap_or(false)
-  let r = map_http_error(fn() {
-    self.client.explain_query(collection_path, qs, analyze=analyze_flag)
-  })
+  let r = map_http_error(
+    async fn() { self.client.explain_query(collection_path, qs, analyze=analyze_flag) },
+  )
   Json::object({
     "documents": Json::array(r.documents.map(@firestore.document_to_json)),
     "metrics": explain_metrics_to_json(r.metrics),
@@ -972,7 +984,7 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
   }
   if has_filter_key {
     let spec = query_spec_from_map_args(args, None)
-    let docs = map_http_error(fn() { self.client.query(cp, spec) })
+    let docs = map_http_error(async fn() { self.client.query(cp, spec) })
     return query_results_to_json(docs)
   }
   let field_opt = match args.get("field") {

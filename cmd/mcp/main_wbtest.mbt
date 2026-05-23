@@ -4,7 +4,7 @@ test "local validation errors are invalid_argument (not network)" {
     err => {
       assert_true(err.to_string().contains("invalid_argument:"))
       assert_false(err.to_string().contains("NetworkError"))
-      ()
+      @firestore.nullv()
     }
   })
 }
