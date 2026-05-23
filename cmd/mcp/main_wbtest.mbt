@@ -12,11 +12,9 @@ test "local validation errors are invalid_argument (not network)" {
 ///|
 test "http network message with firestore code is classified as upstream api" {
   ignore(
-    map_http_error(fn() {
-      raise @ghttp.HttpError::network_message(
-        "INVALID_ARGUMENT: field filter is invalid",
-      )
-    }) catch {
+    raise_mcp_tool_error_from_http(
+      @ghttp.HttpError::network_message("INVALID_ARGUMENT: field filter is invalid"),
+    ) catch {
       err => {
         assert_true(err.to_string().contains("upstream_api_error:"))
         ()

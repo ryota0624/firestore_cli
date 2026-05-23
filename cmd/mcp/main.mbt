@@ -1013,14 +1013,16 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
           limit: lim,
           offset: None,
         }
-        let docs = map_http_error(fn() { self.client.query(cp, spec) })
+        let docs = self.client.query(cp, spec) catch {
+          e => raise_mcp_tool_error_from_http(e)
+        }
         return query_results_to_json(docs)
       }
       _ => ()
     }
     let v = json_to_value(val_j)
     let lim = map_opt_int_strict(args, "limit")
-    let docs = map_http_error(fn() { match lim {
+    let docs = (match lim {
       Some(lim) =>
         self.client.query_collection(
           cp,
@@ -1031,7 +1033,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
         )
       None =>
         self.client.query_collection(cp, field_opt.unwrap(), op_opt.unwrap(), v)
-    } })
+    }) catch {
+      e => raise_mcp_tool_error_from_http(e)
+    }
     return query_results_to_json(docs)
   }
   let flt = if legacy_triple && has_ext {
@@ -1059,7 +1063,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
     None
   }
   let spec = query_spec_from_map_args(args, flt)
-  let docs = map_http_error(fn() { self.client.query(cp, spec) })
+  let docs = self.client.query(cp, spec) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
   query_results_to_json(docs)
 }
 
@@ -1068,7 +1074,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with batch_get(
   self,
   doc_paths : Array[String],
 ) {
-  let results = map_http_error(fn() { self.client.batch_get_documents(doc_paths) })
+  let results = self.client.batch_get_documents(doc_paths) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
   let arr : Array[Json] = []
   for r in results {
     match r {
@@ -1092,11 +1100,13 @@ pub impl @mcp_lib.FirestoreWriter for Reader with create_document(
   for k, v in fields {
     converted[k] = json_to_value(v)
   }
-  let doc = map_http_error(fn() { match doc_id {
+  let doc = (match doc_id {
     Some(id) =>
       self.client.create_document(collection_path, doc_id=id, converted)
     None => self.client.create_document(collection_path, converted)
-  } })
+  }) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
   @firestore.document_to_json(doc)
 }
 
@@ -1106,7 +1116,9 @@ pub impl @mcp_lib.FirestoreWriter for Reader with delete_document(
   collection_path,
   doc_id,
 ) {
-  map_http_error(fn() { self.client.delete_document(collection_path, doc_id) })
+  self.client.delete_document(collection_path, doc_id) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
 }
 
 ///|
@@ -1116,7 +1128,9 @@ pub impl @mcp_lib.FirestoreWriter for Reader with batch_delete_documents(
 ) {
   let prefix = "projects/\{self.client.project}/databases/\{self.client.database}/documents/"
   let full_names = doc_paths.map(fn(p) { prefix + p })
-  map_http_error(fn() { self.client.batch_delete_documents(full_names) })
+  self.client.batch_delete_documents(full_names) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
 }
 
 ///|
