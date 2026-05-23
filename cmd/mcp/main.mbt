@@ -309,6 +309,19 @@ fn field_path_from_field_json(j : Json) -> String raise @ghttp.HttpError {
 }
 
 ///|
+fn normalize_field_filter_op(op : String) -> String {
+  match op {
+    "==" => "EQUAL"
+    "!=" => "NOT_EQUAL"
+    "<" => "LESS_THAN"
+    "<=" => "LESS_THAN_OR_EQUAL"
+    ">" => "GREATER_THAN"
+    ">=" => "GREATER_THAN_OR_EQUAL"
+    _ => op
+  }
+}
+
+///|
 fn field_filter_from_json(j : Json) -> @gfs.FieldFilter raise @ghttp.HttpError {
   guard j is Object(m) else {
     raise @ghttp.HttpError::network_message("fieldFilter must be object")
@@ -320,7 +333,7 @@ fn field_filter_from_json(j : Json) -> @gfs.FieldFilter raise @ghttp.HttpError {
   }
   let fp = field_path_from_field_json(field_j)
   let op = match m.get("op") {
-    Some(Json::String(s)) => Some(s)
+    Some(Json::String(s)) => Some(normalize_field_filter_op(s))
     _ =>
       raise @ghttp.HttpError::network_message("fieldFilter.op must be string")
   }
@@ -602,7 +615,7 @@ fn field_filter_from_shorthand(
 ) -> @gfs.FieldFilter raise @ghttp.HttpError {
   @gfs.FieldFilter::{
     field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
-    op: Some(op),
+    op: Some(normalize_field_filter_op(op)),
     value: Some(gfs_value_from_json(value_j)),
   }
 }
@@ -957,18 +970,12 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
       _ => ()
     }
     let v = json_to_value(val_j)
+    let op = normalize_field_filter_op(op_opt.unwrap())
     let lim = map_opt_int_strict(args, "limit")
     let docs = match lim {
       Some(lim) =>
-        self.client.query_collection(
-          cp,
-          field_opt.unwrap(),
-          op_opt.unwrap(),
-          v,
-          limit=lim,
-        )
-      None =>
-        self.client.query_collection(cp, field_opt.unwrap(), op_opt.unwrap(), v)
+        self.client.query_collection(cp, field_opt.unwrap(), op, v, limit=lim)
+      None => self.client.query_collection(cp, field_opt.unwrap(), op, v)
     }
     return query_results_to_json(docs)
   }
