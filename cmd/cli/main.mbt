@@ -638,10 +638,37 @@ async fn cmd_delete(
 ///|
 fn format_http_error(e : @ghttp.HttpError) -> String {
   match e {
-    NetworkError(m) => "network: \{m}"
+    NetworkError(m) =>
+      if looks_like_upstream_api_error(m) {
+        "upstream api error: \{m}"
+      } else {
+        "transport error: \{m}"
+      }
     TimeoutError(m) => "timeout: \{m}"
-    InvalidUrl(m) => "invalid url: \{m}"
+    InvalidUrl(m) => "invalid configuration: \{m}"
   }
+}
+
+///|
+/// @ghttp.HttpError currently does not expose structured upstream status/code.
+/// Use narrowly-scoped message inspection to separate likely Firestore/API errors
+/// from transport failures.
+fn looks_like_upstream_api_error(message : String) -> Bool {
+  message.contains("INVALID_ARGUMENT") ||
+  message.contains("FAILED_PRECONDITION") ||
+  message.contains("NOT_FOUND") ||
+  message.contains("ALREADY_EXISTS") ||
+  message.contains("PERMISSION_DENIED") ||
+  message.contains("UNAUTHENTICATED") ||
+  message.contains("RESOURCE_EXHAUSTED") ||
+  message.contains("ABORTED") ||
+  message.contains("OUT_OF_RANGE") ||
+  message.contains("UNIMPLEMENTED") ||
+  message.contains("INTERNAL") ||
+  message.contains("UNAVAILABLE") ||
+  message.contains("DATA_LOSS") ||
+  message.contains("http status") ||
+  message.contains("\"error\"")
 }
 
 ///|
