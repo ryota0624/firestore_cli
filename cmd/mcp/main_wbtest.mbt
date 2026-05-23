@@ -37,7 +37,32 @@ test "op_to_unary_is_null_op accepts normalized operators" {
 }
 
 ///|
-fn start_firestore_emulator() -> (@tc.Container, Int) {
+test "local validation errors are invalid_argument (not network)" {
+  ignore(json_to_value(Json::array([Json::number(1.0)])) catch {
+    err => {
+      assert_true(err.to_string().contains("invalid_argument:"))
+      assert_false(err.to_string().contains("NetworkError"))
+      @firestore.nullv()
+    }
+  })
+}
+
+///|
+test "http network message with firestore code is classified as upstream api" {
+  ignore(
+    raise_mcp_tool_error_from_http(
+      @ghttp.HttpError::network_message("INVALID_ARGUMENT: field filter is invalid"),
+    ) catch {
+      err => {
+        assert_true(err.to_string().contains("upstream_api_error:"))
+        ()
+      }
+    },
+  )
+}
+
+///|
+async fn start_firestore_emulator() -> (@tc.Container, Int) {
   let image = @tc.ContainerImage::new("google/cloud-sdk", "emulators")
     .with_exposed_port(8081)
     .with_cmd([
@@ -58,7 +83,7 @@ fn start_firestore_emulator() -> (@tc.Container, Int) {
 }
 
 ///|
-fn build_emulator_reader(host_port : Int) -> Reader {
+async fn build_emulator_reader(host_port : Int) -> Reader {
   let google_client = @firestore.build_emulator_client()
   let client = @firestore.FirestoreClient::new(
     google_client,
