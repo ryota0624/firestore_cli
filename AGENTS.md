@@ -37,12 +37,15 @@ You can browse and install extra skills here:
   change does not bring the visible changes to the external package users, it is
   typically a safe refactoring.
 
-- In the last step, run `moon info && moon fmt` to update the interface and
-  format the code. Check the diffs of `.mbti` file to see if the changes are
-  expected.
+- After editing `.mbt` files, run the following commands in order:
+  1. `moon test` to check tests pass. MoonBit supports snapshot testing; when
+     changes affect outputs, run `moon test --update` to refresh snapshots.
+  2. `moon check` to verify code correctness and catch potential issues.
+  3. `moon fmt` to format your code properly.
+  4. `moon info` to update the generated interface of the package.
 
-- Run `moon test` to check tests pass. MoonBit supports snapshot testing; when
-  changes affect outputs, run `moon test --update` to refresh snapshots.
+- In the last step, check the diffs of `.mbti` file to see if the changes are
+  expected.
 
 - Prefer `assert_eq` or `assert_true(pattern is Pattern(...))` for results that
   are stable or very unlikely to change. Use snapshot tests to record current
