@@ -4,7 +4,69 @@ struct Reader {
 }
 
 ///|
-fn json_to_value(j : Json) -> @gfs.Value raise @ghttp.HttpError {
+suberror McpToolError {
+  InvalidArgument(String)
+  UpstreamApiError(String)
+  TransportError(String)
+  TimeoutError(String)
+  InvalidConfig(String)
+}
+
+///|
+impl Show for McpToolError with output(self, logger) {
+  match self {
+    InvalidArgument(m) => logger.write_string("invalid_argument: \{m}")
+    UpstreamApiError(m) => logger.write_string("upstream_api_error: \{m}")
+    TransportError(m) => logger.write_string("transport_error: \{m}")
+    TimeoutError(m) => logger.write_string("timeout: \{m}")
+    InvalidConfig(m) => logger.write_string("invalid_configuration: \{m}")
+  }
+}
+
+///|
+fn looks_like_upstream_api_error(message : String) -> Bool {
+  message.contains("INVALID_ARGUMENT") ||
+  message.contains("FAILED_PRECONDITION") ||
+  message.contains("NOT_FOUND") ||
+  message.contains("ALREADY_EXISTS") ||
+  message.contains("PERMISSION_DENIED") ||
+  message.contains("UNAUTHENTICATED") ||
+  message.contains("RESOURCE_EXHAUSTED") ||
+  message.contains("ABORTED") ||
+  message.contains("OUT_OF_RANGE") ||
+  message.contains("UNIMPLEMENTED") ||
+  message.contains("INTERNAL") ||
+  message.contains("UNAVAILABLE") ||
+  message.contains("DATA_LOSS") ||
+  message.contains("http status") ||
+  message.contains("\"error\"")
+}
+
+///|
+fn[T] raise_mcp_tool_error_from_http(e : @ghttp.HttpError) -> T raise McpToolError {
+  match e {
+    TimeoutError(m) => raise McpToolError::TimeoutError(m)
+    InvalidUrl(m) => raise McpToolError::InvalidConfig(m)
+    NetworkError(m) =>
+      if looks_like_upstream_api_error(m) {
+        raise McpToolError::UpstreamApiError(m)
+      } else {
+        raise McpToolError::TransportError(m)
+      }
+  }
+}
+
+///|
+async fn[T] map_http_error(
+  f : async () -> T raise @ghttp.HttpError,
+) -> T raise McpToolError {
+  f() catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
+}
+
+///|
+fn json_to_value(j : Json) -> @gfs.Value raise McpToolError {
   match j {
     Json::Null => @firestore.nullv()
     Json::True => @firestore.bv(true)
@@ -19,7 +81,7 @@ fn json_to_value(j : Json) -> @gfs.Value raise @ghttp.HttpError {
     }
     Json::String(s) => @firestore.sv(s)
     Json::Array(_) | Json::Object(_) =>
-      raise @ghttp.HttpError::network_message(
+      raise McpToolError::InvalidArgument(
         "MCP query value: only JSON primitives (null, boolean, number, string) are supported",
       )
   }
@@ -48,10 +110,10 @@ fn query_results_to_json(docs : Array[@gfs.Document]) -> Json {
 fn map_require_str(
   m : Map[String, Json],
   key : String,
-) -> String raise @ghttp.HttpError {
+) -> String raise McpToolError {
   match m.get(key) {
     Some(Json::String(s)) => s
-    _ => raise @ghttp.HttpError::network_message("missing or invalid \{key}")
+    _ => raise McpToolError::InvalidArgument("missing or invalid \{key}")
   }
 }
 
@@ -59,16 +121,16 @@ fn map_require_str(
 fn map_opt_int_strict(
   m : Map[String, Json],
   key : String,
-) -> Int? raise @ghttp.HttpError {
+) -> Int? raise McpToolError {
   match m.get(key) {
     None | Some(Json::Null) => None
     Some(Json::Number(n, ..)) => Some(n.to_int())
-    Some(_) => raise @ghttp.HttpError::network_message("invalid \{key}")
+    Some(_) => raise McpToolError::InvalidArgument("invalid \{key}")
   }
 }
 
 ///|
-fn parse_int64_decimal_string(s : String) -> Int64 raise @ghttp.HttpError {
+fn parse_int64_decimal_string(s : String) -> Int64 raise McpToolError {
   let mut acc : Int64 = 0L
   let mut neg = false
   let mut any_digit = false
@@ -81,14 +143,14 @@ fn parse_int64_decimal_string(s : String) -> Int64 raise @ghttp.HttpError {
     }
     first = false
     if !ch.is_ascii_digit() {
-      raise @ghttp.HttpError::network_message("invalid integerValue")
+      raise McpToolError::InvalidArgument("invalid integerValue")
     }
     any_digit = true
     let d = ch.to_int() - '0'.to_int()
     acc = acc * 10L + Int64::from_int(d)
   }
   if !any_digit {
-    raise @ghttp.HttpError::network_message("empty integerValue")
+    raise McpToolError::InvalidArgument("empty integerValue")
   }
   if neg {
     -acc
@@ -98,7 +160,7 @@ fn parse_int64_decimal_string(s : String) -> Int64 raise @ghttp.HttpError {
 }
 
 ///|
-fn gfs_value_from_json(j : Json) -> @gfs.Value raise @ghttp.HttpError {
+fn gfs_value_from_json(j : Json) -> @gfs.Value raise McpToolError {
   match @firestore.json_to_value(j) {
     Ok(v) => v
     Err(_) =>
@@ -216,7 +278,7 @@ fn gfs_value_from_json(j : Json) -> @gfs.Value raise @ghttp.HttpError {
               let vals_j = match am.get("values") {
                 Some(Json::Array(items)) => items
                 _ =>
-                  raise @ghttp.HttpError::network_message(
+                  raise McpToolError::InvalidArgument(
                     "arrayValue.values must be array",
                   )
               }
@@ -249,7 +311,7 @@ fn gfs_value_from_json(j : Json) -> @gfs.Value raise @ghttp.HttpError {
               let fm = match mv.get("fields") {
                 Some(Json::Object(fields)) => fields
                 _ =>
-                  raise @ghttp.HttpError::network_message(
+                  raise McpToolError::InvalidArgument(
                     "mapValue.fields must be object",
                   )
               }
@@ -277,12 +339,12 @@ fn gfs_value_from_json(j : Json) -> @gfs.Value raise @ghttp.HttpError {
             }
             _ => ()
           }
-          raise @ghttp.HttpError::network_message(
+          raise McpToolError::InvalidArgument(
             "unsupported Firestore Value JSON",
           )
         }
         _ =>
-          raise @ghttp.HttpError::network_message(
+          raise McpToolError::InvalidArgument(
             "unsupported Firestore Value JSON",
           )
       }
@@ -290,44 +352,44 @@ fn gfs_value_from_json(j : Json) -> @gfs.Value raise @ghttp.HttpError {
 }
 
 ///|
-fn field_path_from_field_json(j : Json) -> String raise @ghttp.HttpError {
+fn field_path_from_field_json(j : Json) -> String raise McpToolError {
   match j {
     Json::String(s) => s
     Json::Object(fm) =>
       match fm.get("fieldPath") {
         Some(Json::String(fp)) => fp
         _ =>
-          raise @ghttp.HttpError::network_message(
+          raise McpToolError::InvalidArgument(
             "field.fieldPath must be string",
           )
       }
     _ =>
-      raise @ghttp.HttpError::network_message(
+      raise McpToolError::InvalidArgument(
         "field must be string or { fieldPath }",
       )
   }
 }
 
 ///|
-fn field_filter_from_json(j : Json) -> @gfs.FieldFilter raise @ghttp.HttpError {
+fn field_filter_from_json(j : Json) -> @gfs.FieldFilter raise McpToolError {
   guard j is Object(m) else {
-    raise @ghttp.HttpError::network_message("fieldFilter must be object")
+    raise McpToolError::InvalidArgument("fieldFilter must be object")
   }
   let field_j = match m.get("field") {
     Some(f) => f
     None =>
-      raise @ghttp.HttpError::network_message("fieldFilter.field required")
+      raise McpToolError::InvalidArgument("fieldFilter.field required")
   }
   let fp = field_path_from_field_json(field_j)
   let op = match m.get("op") {
     Some(Json::String(s)) => Some(s)
     _ =>
-      raise @ghttp.HttpError::network_message("fieldFilter.op must be string")
+      raise McpToolError::InvalidArgument("fieldFilter.op must be string")
   }
   let vj = match m.get("value") {
     Some(v) => v
     None =>
-      raise @ghttp.HttpError::network_message("fieldFilter.value required")
+      raise McpToolError::InvalidArgument("fieldFilter.value required")
   }
   @gfs.FieldFilter::{
     field: Some(@gfs.FieldReference::{ field_path: Some(fp) }),
@@ -339,18 +401,18 @@ fn field_filter_from_json(j : Json) -> @gfs.FieldFilter raise @ghttp.HttpError {
 ///|
 fn composite_filter_from_json(
   j : Json,
-) -> @gfs.CompositeFilter raise @ghttp.HttpError {
+) -> @gfs.CompositeFilter raise McpToolError {
   guard j is Object(m) else {
-    raise @ghttp.HttpError::network_message("compositeFilter must be object")
+    raise McpToolError::InvalidArgument("compositeFilter must be object")
   }
   let op = match m.get("op") {
     Some(Json::String(s)) => Some(s)
-    _ => raise @ghttp.HttpError::network_message("compositeFilter.op required")
+    _ => raise McpToolError::InvalidArgument("compositeFilter.op required")
   }
   let filters_j = match m.get("filters") {
     Some(Json::Array(arr)) => arr
     _ =>
-      raise @ghttp.HttpError::network_message(
+      raise McpToolError::InvalidArgument(
         "compositeFilter.filters must be array",
       )
   }
@@ -362,19 +424,19 @@ fn composite_filter_from_json(
 }
 
 ///|
-fn unary_filter_from_json(j : Json) -> @gfs.UnaryFilter raise @ghttp.HttpError {
+fn unary_filter_from_json(j : Json) -> @gfs.UnaryFilter raise McpToolError {
   guard j is Object(m) else {
-    raise @ghttp.HttpError::network_message("unaryFilter must be object")
+    raise McpToolError::InvalidArgument("unaryFilter must be object")
   }
   let op = match m.get("op") {
     Some(Json::String(s)) => Some(s)
     _ =>
-      raise @ghttp.HttpError::network_message("unaryFilter.op must be string")
+      raise McpToolError::InvalidArgument("unaryFilter.op must be string")
   }
   let field_j = match m.get("field") {
     Some(f) => f
     None =>
-      raise @ghttp.HttpError::network_message("unaryFilter.field required")
+      raise McpToolError::InvalidArgument("unaryFilter.field required")
   }
   let fp = field_path_from_field_json(field_j)
   @gfs.UnaryFilter::{
@@ -384,9 +446,9 @@ fn unary_filter_from_json(j : Json) -> @gfs.UnaryFilter raise @ghttp.HttpError {
 }
 
 ///|
-fn filter_from_json(j : Json) -> @gfs.Filter raise @ghttp.HttpError {
+fn filter_from_json(j : Json) -> @gfs.Filter raise McpToolError {
   guard j is Object(m) else {
-    raise @ghttp.HttpError::network_message("filter must be object")
+    raise McpToolError::InvalidArgument("filter must be object")
   }
   match (m.get("compositeFilter"), m.get("fieldFilter"), m.get("unaryFilter")) {
     (Some(cj), None, None) =>
@@ -421,11 +483,11 @@ fn filter_from_json(j : Json) -> @gfs.Filter raise @ghttp.HttpError {
         let fp = match m.get("field") {
           Some(f) => field_path_from_field_json(f)
           None =>
-            raise @ghttp.HttpError::network_message("filter field required")
+            raise McpToolError::InvalidArgument("filter field required")
         }
         let op_str = match m.get("op") {
           Some(Json::String(s)) => s
-          _ => raise @ghttp.HttpError::network_message("filter op required")
+          _ => raise McpToolError::InvalidArgument("filter op required")
         }
         match m.get("value") {
           Some(Json::Null) => unary_filter_for_null(fp, op_str)
@@ -437,22 +499,22 @@ fn filter_from_json(j : Json) -> @gfs.Filter raise @ghttp.HttpError {
             }
         }
       } else {
-        raise @ghttp.HttpError::network_message(
+        raise McpToolError::InvalidArgument(
           "filter: expected compositeFilter, fieldFilter, unaryFilter, or shorthand field/op/value",
         )
       }
     }
     _ =>
-      raise @ghttp.HttpError::network_message(
+      raise McpToolError::InvalidArgument(
         "filter: exactly one of compositeFilter, fieldFilter, unaryFilter, or shorthand",
       )
   }
 }
 
 ///|
-fn order_from_json(j : Json) -> @gfs.Order raise @ghttp.HttpError {
+fn order_from_json(j : Json) -> @gfs.Order raise McpToolError {
   guard j is Object(m) else {
-    raise @ghttp.HttpError::network_message("order_by entry must be object")
+    raise McpToolError::InvalidArgument("order_by entry must be object")
   }
   match m.get("fieldPath") {
     Some(Json::String(fp)) => {
@@ -460,7 +522,7 @@ fn order_from_json(j : Json) -> @gfs.Order raise @ghttp.HttpError {
         Some(Json::String(d)) => Some(d)
         None | Some(Json::Null) => None
         _ =>
-          raise @ghttp.HttpError::network_message(
+          raise McpToolError::InvalidArgument(
             "order direction must be string",
           )
       }
@@ -474,7 +536,7 @@ fn order_from_json(j : Json) -> @gfs.Order raise @ghttp.HttpError {
   let field_j = match m.get("field") {
     Some(f) => f
     None =>
-      raise @ghttp.HttpError::network_message(
+      raise McpToolError::InvalidArgument(
         "order_by: field or fieldPath required",
       )
   }
@@ -483,7 +545,7 @@ fn order_from_json(j : Json) -> @gfs.Order raise @ghttp.HttpError {
     Some(Json::String(d)) => Some(d)
     None | Some(Json::Null) => None
     _ =>
-      raise @ghttp.HttpError::network_message("order direction must be string")
+      raise McpToolError::InvalidArgument("order direction must be string")
   }
   @gfs.Order::{
     field: Some(@gfs.FieldReference::{ field_path: Some(fp) }),
@@ -492,13 +554,13 @@ fn order_from_json(j : Json) -> @gfs.Order raise @ghttp.HttpError {
 }
 
 ///|
-fn cursor_from_json(j : Json) -> @gfs.Cursor raise @ghttp.HttpError {
+fn cursor_from_json(j : Json) -> @gfs.Cursor raise McpToolError {
   guard j is Object(m) else {
-    raise @ghttp.HttpError::network_message("cursor must be object")
+    raise McpToolError::InvalidArgument("cursor must be object")
   }
   let vals_j = match m.get("values") {
     Some(Json::Array(items)) => items
-    _ => raise @ghttp.HttpError::network_message("cursor.values must be array")
+    _ => raise McpToolError::InvalidArgument("cursor.values must be array")
   }
   let vals : Array[@gfs.Value] = []
   for vj in vals_j {
@@ -509,7 +571,7 @@ fn cursor_from_json(j : Json) -> @gfs.Cursor raise @ghttp.HttpError {
     Some(Json::True) => Some(true)
     Some(Json::False) => Some(false)
     _ =>
-      raise @ghttp.HttpError::network_message("cursor.before must be boolean")
+      raise McpToolError::InvalidArgument("cursor.before must be boolean")
   }
   @gfs.Cursor::{ values: Some(vals), before }
 }
@@ -517,7 +579,7 @@ fn cursor_from_json(j : Json) -> @gfs.Cursor raise @ghttp.HttpError {
 ///|
 fn order_by_from_map(
   m : Map[String, Json],
-) -> Array[@gfs.Order]? raise @ghttp.HttpError {
+) -> Array[@gfs.Order]? raise McpToolError {
   let j = match m.get("order_by") {
     Some(x) => Some(x)
     None => m.get("orderBy")
@@ -532,7 +594,7 @@ fn order_by_from_map(
       Some(out)
     }
     _ =>
-      raise @ghttp.HttpError::network_message("order_by must be array or null")
+      raise McpToolError::InvalidArgument("order_by must be array or null")
   }
 }
 
@@ -541,7 +603,7 @@ fn cursor_opt_from_map(
   m : Map[String, Json],
   snake : String,
   camel : String,
-) -> @gfs.Cursor? raise @ghttp.HttpError {
+) -> @gfs.Cursor? raise McpToolError {
   let j = match m.get(snake) {
     Some(x) => Some(x)
     None => m.get(camel)
@@ -556,7 +618,7 @@ fn cursor_opt_from_map(
 fn query_spec_from_map_args(
   m : Map[String, Json],
   filter_override : @gfs.Filter?,
-) -> @firestore.QuerySpec raise @ghttp.HttpError {
+) -> @firestore.QuerySpec raise McpToolError {
   let flt = match filter_override {
     Some(f) => Some(f)
     None =>
@@ -599,7 +661,7 @@ fn field_filter_from_shorthand(
   field : String,
   op : String,
   value_j : Json,
-) -> @gfs.FieldFilter raise @ghttp.HttpError {
+) -> @gfs.FieldFilter raise McpToolError {
   @gfs.FieldFilter::{
     field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
     op: Some(op),
@@ -608,12 +670,12 @@ fn field_filter_from_shorthand(
 }
 
 ///|
-fn op_to_unary_is_null_op(op : String) -> String raise @ghttp.HttpError {
+fn op_to_unary_is_null_op(op : String) -> String raise McpToolError {
   match op {
     "==" => "IS_NULL"
     "!=" => "IS_NOT_NULL"
     _ =>
-      raise @ghttp.HttpError::network_message(
+      raise McpToolError::InvalidArgument(
         "null value only supports == and != operators (maps to IS_NULL / IS_NOT_NULL)",
       )
   }
@@ -623,7 +685,7 @@ fn op_to_unary_is_null_op(op : String) -> String raise @ghttp.HttpError {
 fn unary_filter_for_null(
   field : String,
   op : String,
-) -> @gfs.Filter raise @ghttp.HttpError {
+) -> @gfs.Filter raise McpToolError {
   @gfs.Filter::{
     composite_filter: None,
     field_filter: None,
@@ -691,22 +753,22 @@ fn explain_metrics_to_json(metrics : @gfs.ExplainMetrics) -> Json {
 ///|
 fn aggregators_from_json(
   j : Json,
-) -> Array[(String, @firestore.Aggregator)] raise @ghttp.HttpError {
+) -> Array[(String, @firestore.Aggregator)] raise McpToolError {
   guard j is Array(arr) else {
-    raise @ghttp.HttpError::network_message("aggregators must be array")
+    raise McpToolError::InvalidArgument("aggregators must be array")
   }
   let out : Array[(String, @firestore.Aggregator)] = []
   for item in arr {
     guard item is Object(m) else {
-      raise @ghttp.HttpError::network_message("each aggregator must be object")
+      raise McpToolError::InvalidArgument("each aggregator must be object")
     }
     let agg_name = match m.get("alias") {
       Some(Json::String(a)) => a
-      _ => raise @ghttp.HttpError::network_message("aggregator.alias required")
+      _ => raise McpToolError::InvalidArgument("aggregator.alias required")
     }
     let typ = match m.get("type") {
       Some(Json::String(t)) => t
-      _ => raise @ghttp.HttpError::network_message("aggregator.type required")
+      _ => raise McpToolError::InvalidArgument("aggregator.type required")
     }
     match typ {
       "count" => out.push((agg_name, @firestore.Aggregator::Count))
@@ -714,7 +776,7 @@ fn aggregators_from_json(
         let field = match m.get("field") {
           Some(Json::String(f)) => f
           _ =>
-            raise @ghttp.HttpError::network_message(
+            raise McpToolError::InvalidArgument(
               "aggregator.field required for sum",
             )
         }
@@ -724,14 +786,14 @@ fn aggregators_from_json(
         let field = match m.get("field") {
           Some(Json::String(f)) => f
           _ =>
-            raise @ghttp.HttpError::network_message(
+            raise McpToolError::InvalidArgument(
               "aggregator.field required for avg",
             )
         }
         out.push((agg_name, @firestore.Aggregator::Avg(field)))
       }
       _ =>
-        raise @ghttp.HttpError::network_message(
+        raise McpToolError::InvalidArgument(
           "aggregator.type must be count, sum, or avg",
         )
     }
@@ -740,9 +802,9 @@ fn aggregators_from_json(
 }
 
 ///|
-fn aggregate_where_clause(j : Json) -> @gfs.Filter raise @ghttp.HttpError {
+fn aggregate_where_clause(j : Json) -> @gfs.Filter raise McpToolError {
   guard j is Object(m) else {
-    raise @ghttp.HttpError::network_message("where must be object")
+    raise McpToolError::InvalidArgument("where must be object")
   }
   if m.contains("compositeFilter") ||
     m.contains("fieldFilter") ||
@@ -752,7 +814,7 @@ fn aggregate_where_clause(j : Json) -> @gfs.Filter raise @ghttp.HttpError {
     let field = map_require_str(m, "field")
     let op = map_require_str(m, "op")
     if !m.contains("value") {
-      raise @ghttp.HttpError::network_message("where.value required")
+      raise McpToolError::InvalidArgument("where.value required")
     }
     match m.get("value") {
       None | Some(Json::Null) => unary_filter_for_null(field, op)
@@ -772,7 +834,11 @@ pub impl @mcp_lib.FirestoreReader for Reader with get_document(
   collection_path : String,
   doc_id : String,
 ) {
-  let doc = self.client.get_document(collection_path, doc_id)
+  let doc = map_http_error(
+    async fn() raise @ghttp.HttpError {
+      self.client.get_document(collection_path, doc_id)
+    },
+  )
   @firestore.document_to_json(doc)
 }
 
@@ -783,15 +849,17 @@ pub impl @mcp_lib.FirestoreReader for Reader with list_documents(
   page_size : Int?,
   page_token : String?,
 ) {
-  let resp = match (page_size, page_token) {
-    (Some(ps), Some(pt)) =>
-      self.client.list_documents(collection_path, page_size=ps, page_token=pt)
-    (Some(ps), None) =>
-      self.client.list_documents(collection_path, page_size=ps)
-    (None, Some(pt)) =>
-      self.client.list_documents(collection_path, page_token=pt)
-    (None, None) => self.client.list_documents(collection_path)
-  }
+  let resp = map_http_error(
+    async fn() raise @ghttp.HttpError { match (page_size, page_token) {
+      (Some(ps), Some(pt)) =>
+        self.client.list_documents(collection_path, page_size=ps, page_token=pt)
+      (Some(ps), None) =>
+        self.client.list_documents(collection_path, page_size=ps)
+      (None, Some(pt)) =>
+        self.client.list_documents(collection_path, page_token=pt)
+      (None, None) => self.client.list_documents(collection_path)
+    } },
+  )
   list_response_to_json(resp)
 }
 
@@ -802,24 +870,26 @@ pub impl @mcp_lib.FirestoreReader for Reader with list_collection_ids(
   page_size : Int?,
   page_token : String?,
 ) {
-  let (ids, next_tok) = match (parent_doc_path, page_size, page_token) {
-    (Some(p), Some(ps), Some(pt)) =>
-      self.client.list_collection_ids(
-        parent_doc_path=p,
-        page_size=ps,
-        page_token=pt,
-      )
-    (Some(p), Some(ps), None) =>
-      self.client.list_collection_ids(parent_doc_path=p, page_size=ps)
-    (Some(p), None, Some(pt)) =>
-      self.client.list_collection_ids(parent_doc_path=p, page_token=pt)
-    (Some(p), None, None) => self.client.list_collection_ids(parent_doc_path=p)
-    (None, Some(ps), Some(pt)) =>
-      self.client.list_collection_ids(page_size=ps, page_token=pt)
-    (None, Some(ps), None) => self.client.list_collection_ids(page_size=ps)
-    (None, None, Some(pt)) => self.client.list_collection_ids(page_token=pt)
-    (None, None, None) => self.client.list_collection_ids()
-  }
+  let (ids, next_tok) = map_http_error(
+    async fn() raise @ghttp.HttpError { match (parent_doc_path, page_size, page_token) {
+      (Some(p), Some(ps), Some(pt)) =>
+        self.client.list_collection_ids(
+          parent_doc_path=p,
+          page_size=ps,
+          page_token=pt,
+        )
+      (Some(p), Some(ps), None) =>
+        self.client.list_collection_ids(parent_doc_path=p, page_size=ps)
+      (Some(p), None, Some(pt)) =>
+        self.client.list_collection_ids(parent_doc_path=p, page_token=pt)
+      (Some(p), None, None) => self.client.list_collection_ids(parent_doc_path=p)
+      (None, Some(ps), Some(pt)) =>
+        self.client.list_collection_ids(page_size=ps, page_token=pt)
+      (None, Some(ps), None) => self.client.list_collection_ids(page_size=ps)
+      (None, None, Some(pt)) => self.client.list_collection_ids(page_token=pt)
+      (None, None, None) => self.client.list_collection_ids()
+    } },
+  )
   Json::object({
     "collectionIds": Json::array(ids.map(fn(s) { Json::string(s) })),
     "nextPageToken": match next_tok {
@@ -841,10 +911,12 @@ pub impl @mcp_lib.FirestoreReader for Reader with aggregate(
     None => None
     Some(j) => Some(aggregate_where_clause(j))
   }
-  let results = match wf {
-    None => self.client.aggregate(collection_path, aggs)
-    Some(f) => self.client.aggregate(collection_path, aggs, where_=f)
-  }
+  let results = map_http_error(
+    async fn() raise @ghttp.HttpError { match wf {
+      None => self.client.aggregate(collection_path, aggs)
+      Some(f) => self.client.aggregate(collection_path, aggs, where_=f)
+    } },
+  )
   aggregation_results_to_json(results)
 }
 
@@ -862,17 +934,19 @@ pub impl @mcp_lib.FirestoreReader for Reader with explain_aggregate(
     Some(j) => Some(aggregate_where_clause(j))
   }
   let analyze_flag = analyze.unwrap_or(false)
-  let res = match wf {
-    None =>
-      self.client.explain_aggregate(collection_path, aggs, analyze=analyze_flag)
-    Some(f) =>
-      self.client.explain_aggregate(
-        collection_path,
-        aggs,
-        where_=f,
-        analyze=analyze_flag,
-      )
-  }
+  let res = map_http_error(
+    async fn() raise @ghttp.HttpError { match wf {
+      None =>
+        self.client.explain_aggregate(collection_path, aggs, analyze=analyze_flag)
+      Some(f) =>
+        self.client.explain_aggregate(
+          collection_path,
+          aggs,
+          where_=f,
+          analyze=analyze_flag,
+        )
+    } },
+  )
   Json::object({
     "results": aggregation_results_to_json(res.results),
     "metrics": explain_metrics_to_json(res.metrics),
@@ -887,11 +961,15 @@ pub impl @mcp_lib.FirestoreReader for Reader with explain_query(
   analyze : Bool?,
 ) {
   guard spec is Object(spec_map) else {
-    raise @ghttp.HttpError::network_message("spec must be object")
+    raise McpToolError::InvalidArgument("spec must be object")
   }
   let qs = query_spec_from_map_args(spec_map, None)
   let analyze_flag = analyze.unwrap_or(false)
-  let r = self.client.explain_query(collection_path, qs, analyze=analyze_flag)
+  let r = map_http_error(
+    async fn() raise @ghttp.HttpError {
+      self.client.explain_query(collection_path, qs, analyze=analyze_flag)
+    },
+  )
   Json::object({
     "documents": Json::array(r.documents.map(@firestore.document_to_json)),
     "metrics": explain_metrics_to_json(r.metrics),
@@ -910,7 +988,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
   }
   if has_filter_key {
     let spec = query_spec_from_map_args(args, None)
-    let docs = self.client.query(cp, spec)
+    let docs = map_http_error(
+      async fn() raise @ghttp.HttpError { self.client.query(cp, spec) },
+    )
     return query_results_to_json(docs)
   }
   let field_opt = match args.get("field") {
@@ -928,7 +1008,7 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
   }
   if !legacy_triple {
     if field_opt is Some(_) || op_opt is Some(_) || value_present {
-      raise @ghttp.HttpError::network_message(
+      raise McpToolError::InvalidArgument(
         "field, op, and value must all be set together (unless using filter)",
       )
     }
@@ -937,7 +1017,7 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
   if legacy_triple && !has_ext {
     let val_j = match args.get("value") {
       Some(val) => val
-      None => raise @ghttp.HttpError::network_message("missing value for query")
+      None => raise McpToolError::InvalidArgument("missing value for query")
     }
     match val_j {
       Json::Null => {
@@ -951,14 +1031,16 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
           limit: lim,
           offset: None,
         }
-        let docs = self.client.query(cp, spec)
+        let docs = self.client.query(cp, spec) catch {
+          e => raise_mcp_tool_error_from_http(e)
+        }
         return query_results_to_json(docs)
       }
       _ => ()
     }
     let v = json_to_value(val_j)
     let lim = map_opt_int_strict(args, "limit")
-    let docs = match lim {
+    let docs = (match lim {
       Some(lim) =>
         self.client.query_collection(
           cp,
@@ -969,13 +1051,15 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
         )
       None =>
         self.client.query_collection(cp, field_opt.unwrap(), op_opt.unwrap(), v)
+    }) catch {
+      e => raise_mcp_tool_error_from_http(e)
     }
     return query_results_to_json(docs)
   }
   let flt = if legacy_triple && has_ext {
     let val_j = match args.get("value") {
       Some(val) => val
-      None => raise @ghttp.HttpError::network_message("missing value")
+      None => raise McpToolError::InvalidArgument("missing value")
     }
     match val_j {
       Json::Null =>
@@ -997,7 +1081,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
     None
   }
   let spec = query_spec_from_map_args(args, flt)
-  let docs = self.client.query(cp, spec)
+  let docs = self.client.query(cp, spec) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
   query_results_to_json(docs)
 }
 
@@ -1006,7 +1092,9 @@ pub impl @mcp_lib.FirestoreReader for Reader with batch_get(
   self,
   doc_paths : Array[String],
 ) {
-  let results = self.client.batch_get_documents(doc_paths)
+  let results = self.client.batch_get_documents(doc_paths) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
   let arr : Array[Json] = []
   for r in results {
     match r {
@@ -1030,10 +1118,12 @@ pub impl @mcp_lib.FirestoreWriter for Reader with create_document(
   for k, v in fields {
     converted[k] = json_to_value(v)
   }
-  let doc = match doc_id {
+  let doc = (match doc_id {
     Some(id) =>
       self.client.create_document(collection_path, doc_id=id, converted)
     None => self.client.create_document(collection_path, converted)
+  }) catch {
+    e => raise_mcp_tool_error_from_http(e)
   }
   @firestore.document_to_json(doc)
 }
@@ -1044,7 +1134,9 @@ pub impl @mcp_lib.FirestoreWriter for Reader with delete_document(
   collection_path,
   doc_id,
 ) {
-  self.client.delete_document(collection_path, doc_id)
+  self.client.delete_document(collection_path, doc_id) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
 }
 
 ///|
@@ -1054,7 +1146,9 @@ pub impl @mcp_lib.FirestoreWriter for Reader with batch_delete_documents(
 ) {
   let prefix = "projects/\{self.client.project}/databases/\{self.client.database}/documents/"
   let full_names = doc_paths.map(fn(p) { prefix + p })
-  self.client.batch_delete_documents(full_names)
+  self.client.batch_delete_documents(full_names) catch {
+    e => raise_mcp_tool_error_from_http(e)
+  }
 }
 
 ///|
