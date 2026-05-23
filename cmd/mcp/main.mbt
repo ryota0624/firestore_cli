@@ -623,8 +623,8 @@ fn field_filter_from_shorthand(
 ///|
 fn op_to_unary_is_null_op(op : String) -> String raise @ghttp.HttpError {
   match op {
-    "==" => "IS_NULL"
-    "!=" => "IS_NOT_NULL"
+    "==" | "EQUAL" => "IS_NULL"
+    "!=" | "NOT_EQUAL" => "IS_NOT_NULL"
     _ =>
       raise @ghttp.HttpError::network_message(
         "null value only supports == and != operators (maps to IS_NULL / IS_NOT_NULL)",

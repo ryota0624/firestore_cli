@@ -31,6 +31,12 @@ test "field_filter_from_json uses normalized operator" {
 }
 
 ///|
+test "op_to_unary_is_null_op accepts normalized operators" {
+  assert_eq(op_to_unary_is_null_op("EQUAL"), "IS_NULL")
+  assert_eq(op_to_unary_is_null_op("NOT_EQUAL"), "IS_NOT_NULL")
+}
+
+///|
 fn start_firestore_emulator() -> (@tc.Container, Int) {
   let image = @tc.ContainerImage::new("google/cloud-sdk", "emulators")
     .with_exposed_port(8081)
