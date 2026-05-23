@@ -371,6 +371,19 @@ fn field_path_from_field_json(j : Json) -> String raise McpToolError {
 }
 
 ///|
+fn normalize_field_filter_op(op : String) -> String {
+  match op {
+    "==" => "EQUAL"
+    "!=" => "NOT_EQUAL"
+    "<" => "LESS_THAN"
+    "<=" => "LESS_THAN_OR_EQUAL"
+    ">" => "GREATER_THAN"
+    ">=" => "GREATER_THAN_OR_EQUAL"
+    _ => op
+  }
+}
+
+///|
 fn field_filter_from_json(j : Json) -> @gfs.FieldFilter raise McpToolError {
   guard j is Object(m) else {
     raise McpToolError::InvalidArgument("fieldFilter must be object")
@@ -382,7 +395,7 @@ fn field_filter_from_json(j : Json) -> @gfs.FieldFilter raise McpToolError {
   }
   let fp = field_path_from_field_json(field_j)
   let op = match m.get("op") {
-    Some(Json::String(s)) => Some(s)
+    Some(Json::String(s)) => Some(normalize_field_filter_op(s))
     _ =>
       raise McpToolError::InvalidArgument("fieldFilter.op must be string")
   }
@@ -664,7 +677,7 @@ fn field_filter_from_shorthand(
 ) -> @gfs.FieldFilter raise McpToolError {
   @gfs.FieldFilter::{
     field: Some(@gfs.FieldReference::{ field_path: Some(field) }),
-    op: Some(op),
+    op: Some(normalize_field_filter_op(op)),
     value: Some(gfs_value_from_json(value_j)),
   }
 }
@@ -672,8 +685,8 @@ fn field_filter_from_shorthand(
 ///|
 fn op_to_unary_is_null_op(op : String) -> String raise McpToolError {
   match op {
-    "==" => "IS_NULL"
-    "!=" => "IS_NOT_NULL"
+    "==" | "EQUAL" => "IS_NULL"
+    "!=" | "NOT_EQUAL" => "IS_NOT_NULL"
     _ =>
       raise McpToolError::InvalidArgument(
         "null value only supports == and != operators (maps to IS_NULL / IS_NOT_NULL)",
@@ -1039,18 +1052,12 @@ pub impl @mcp_lib.FirestoreReader for Reader with query_collection(
       _ => ()
     }
     let v = json_to_value(val_j)
+    let op = normalize_field_filter_op(op_opt.unwrap())
     let lim = map_opt_int_strict(args, "limit")
     let docs = (match lim {
       Some(lim) =>
-        self.client.query_collection(
-          cp,
-          field_opt.unwrap(),
-          op_opt.unwrap(),
-          v,
-          limit=lim,
-        )
-      None =>
-        self.client.query_collection(cp, field_opt.unwrap(), op_opt.unwrap(), v)
+        self.client.query_collection(cp, field_opt.unwrap(), op, v, limit=lim)
+      None => self.client.query_collection(cp, field_opt.unwrap(), op, v)
     }) catch {
       e => raise_mcp_tool_error_from_http(e)
     }
